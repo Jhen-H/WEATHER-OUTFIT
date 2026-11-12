@@ -103,7 +103,8 @@ function PreferencesView({ preferences, setPreferences, toggleValue, setOccasion
 function ReminderSettings({ reminder, onChange }: { reminder: Preferences["reminder"]; onChange: (reminder: Preferences["reminder"]) => void }) {
   const [testStatus, setTestStatus] = useState("");
   async function sendTestNotification() {
-    if (!("Notification" in window) || !("serviceWorker" in navigator)) { setTestStatus("這個瀏覽器不支援通知測試。"); return; }
+    if (!("Notification" in window)) { setTestStatus("這個瀏覽器沒有提供通知功能；請改用 Safari、Chrome 或 Edge 開啟網站。"); return; }
+    if (!("serviceWorker" in navigator)) { setTestStatus("目前是內嵌瀏覽器，無法測試通知。請改用 Safari、Chrome 或 Edge 直接開啟網站；iPhone 建議先加入主畫面再測試。"); return; }
     if (!window.isSecureContext) { setTestStatus("通知測試需要 HTTPS 網址或本機 localhost。部署後請再試。 "); return; }
     const permission = await Notification.requestPermission();
     if (permission !== "granted") { setTestStatus("尚未取得通知權限；請在瀏覽器設定中允許通知後再試。 "); return; }
