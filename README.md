@@ -43,6 +43,17 @@ pnpm dev
 pnpm build
 ```
 
+## 後端提醒 API（開發中）
+
+`server/WeatherOutfit.Api` 是第二階段的 ASP.NET Core Web API 骨架，已提供裝置註冊、提醒時間與 Push 訂閱資料的 API 路由，以及每分鐘檢查到期提醒的背景服務。
+
+```bash
+cd server/WeatherOutfit.Api
+dotnet run --urls http://127.0.0.1:5099
+```
+
+目前資料只存於記憶體，重啟後會清除；下一步會改接資料庫、VAPID 金鑰與真正的 Web Push 發送。
+
 ## 專案結構
 
 ```text
