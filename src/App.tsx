@@ -3,6 +3,7 @@ import { clothingOptions, colorOptions, loadPreferences, occasions, presentation
 import { makeOutfits, type Outfit } from "./recommendation";
 import { cities, findNearestCity, formatForecastDay, formatShortDate, getWeatherForecast, weatherLabel, type Weather } from "./weather";
 import { ClothingIcon } from "./ClothingIcon";
+import { savePushReminder, sendServerPushTest } from "./pushReminder";
 
 const initialWeather: Weather = { date: new Date().toISOString().slice(0, 10), temperature: 28, apparentTemperature: 30, high: 32, low: 23, rainChance: 60, uvIndex: 7, windSpeed: 9, weatherCode: 1 };
 type View = "home" | "preferences" | "favorites" | "why";
@@ -102,6 +103,12 @@ function PreferencesView({ preferences, setPreferences, toggleValue, setOccasion
 
 function ReminderSettings({ reminder, onChange }: { reminder: Preferences["reminder"]; onChange: (reminder: Preferences["reminder"]) => void }) {
   const [testStatus, setTestStatus] = useState("");
+  async function syncReminder(nextReminder: Preferences["reminder"]) {
+    onChange(nextReminder);
+    if (!window.isSecureContext || !("serviceWorker" in navigator)) return;
+    try { await savePushReminder(nextReminder); setTestStatus(nextReminder.enabled ? "已儲存每日提醒並註冊這台裝置。" : "已關閉此裝置的每日提醒。"); }
+    catch (error) { setTestStatus(error instanceof Error ? error.message : "提醒設定暫時無法儲存。"); }
+  }
   async function sendTestNotification() {
     if (!("Notification" in window)) { setTestStatus("這個瀏覽器沒有提供通知功能；請改用 Safari、Chrome 或 Edge 開啟網站。"); return; }
     if (!("serviceWorker" in navigator)) { setTestStatus("目前是內嵌瀏覽器，無法測試通知。請改用 Safari、Chrome 或 Edge 直接開啟網站；iPhone 建議先加入主畫面再測試。"); return; }
@@ -111,9 +118,10 @@ function ReminderSettings({ reminder, onChange }: { reminder: Preferences["remin
     const registration = await navigator.serviceWorker.ready;
     if (registration.active) registration.active.postMessage({ type: "SHOW_TEST_NOTIFICATION" });
     else await registration.showNotification("Weather Outfit", { body: "測試成功：每日穿搭提醒已可顯示。", icon: `${import.meta.env.BASE_URL}icon.svg`, tag: "weather-outfit-test" });
-    setTestStatus("已送出測試通知，請查看系統通知。 ");
+    try { await sendServerPushTest(); setTestStatus("後端已送出測試推播，請查看系統通知。 "); }
+    catch { setTestStatus("本機通知測試成功；後端推播將在 API 部署到 HTTPS 後啟用。 "); }
   }
-  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>可先儲存想提醒的時間。每日背景推播會在後端與 Web Push 完成後接上。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `預計在每天 ${reminder.time} 提醒` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => onChange({ ...reminder, enabled: event.target.checked })} /></label><label className="reminder-time"><span>提醒時間</span><input type="time" value={reminder.time} disabled={!reminder.enabled} onChange={(event) => onChange({ ...reminder, time: event.target.value })} /></label><div className="notification-test"><button type="button" onClick={() => void sendTestNotification()}>發送測試通知</button><small>{testStatus || "部署到 HTTPS 後，可用這裡確認手機是否能收到通知。"}</small></div></section>;
+  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會將這台裝置與提醒時間安全註冊到提醒服務。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `預計在每天 ${reminder.time} 提醒` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked })} /></label><label className="reminder-time"><span>提醒時間</span><input type="time" value={reminder.time} disabled={!reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, time: event.target.value })} /></label><div className="notification-test"><button type="button" onClick={() => void sendTestNotification()}>發送測試通知</button><small>{testStatus || "後端部署到 HTTPS 後，可用這裡確認真正的背景推播。"}</small></div></section>;
 }
 
 function PageHeader({ title, subtitle, onBack }: { title: string; subtitle: string; onBack: () => void }) { return <header className="page-header"><button onClick={onBack}>← 回到首頁</button><p className="eyebrow">WEATHER OUTFIT</p><h1>{title}</h1><p>{subtitle}</p></header>; }

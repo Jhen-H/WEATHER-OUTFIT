@@ -1,49 +1,67 @@
-using System.Collections.Concurrent;
+using Microsoft.EntityFrameworkCore;
+using WeatherOutfit.Api.Data;
 using WeatherOutfit.Api.Models;
 
 namespace WeatherOutfit.Api.Services;
 
-public sealed class ReminderStore
+public sealed class ReminderStore(WeatherOutfitDbContext db)
 {
-    private readonly ConcurrentDictionary<Guid, Device> _devices = new();
-    private readonly ConcurrentDictionary<Guid, Reminder> _reminders = new();
-
-    public Device RegisterDevice(string? deviceName)
+    public async Task<Device> RegisterDevice(string? name)
     {
-        var device = new Device(Guid.NewGuid(), string.IsNullOrWhiteSpace(deviceName) ? "未命名裝置" : deviceName.Trim(), DateTimeOffset.UtcNow);
-        _devices[device.Id] = device;
+        var device = new Device(Guid.NewGuid(), string.IsNullOrWhiteSpace(name) ? "未命名裝置" : name.Trim(), DateTimeOffset.UtcNow);
+        db.Devices.Add(new DeviceEntity { Id = device.Id, Name = device.Name, CreatedAt = device.CreatedAt });
+        await db.SaveChangesAsync();
         return device;
     }
 
-    public Reminder? SaveReminder(Guid deviceId, bool enabled, TimeOnly time, string timeZoneId)
+    public async Task<Reminder?> SaveReminder(Guid deviceId, bool enabled, TimeOnly time, string timeZoneId)
     {
-        if (!_devices.ContainsKey(deviceId)) return null;
-        return _reminders.AddOrUpdate(deviceId,
-            _ => new Reminder { DeviceId = deviceId, Enabled = enabled, Time = time, TimeZoneId = timeZoneId },
-            (_, current) => { current.Enabled = enabled; current.Time = time; current.TimeZoneId = string.IsNullOrWhiteSpace(timeZoneId) ? "Asia/Taipei" : timeZoneId; return current; });
+        if (!await db.Devices.AnyAsync(device => device.Id == deviceId)) return null;
+        var item = await db.Reminders.FindAsync(deviceId) ?? new ReminderEntity { DeviceId = deviceId };
+        item.Enabled = enabled; item.Time = time; item.TimeZoneId = string.IsNullOrWhiteSpace(timeZoneId) ? "Asia/Taipei" : timeZoneId;
+        if (db.Entry(item).State == EntityState.Detached) db.Reminders.Add(item);
+        await db.SaveChangesAsync();
+        return ToModel(item);
     }
 
-    public Reminder? GetReminder(Guid deviceId) => _reminders.TryGetValue(deviceId, out var reminder) ? reminder : null;
-
-    public Reminder? SaveSubscription(SavePushSubscriptionRequest request)
+    public async Task<Reminder?> GetReminder(Guid deviceId)
     {
-        if (!_devices.ContainsKey(request.DeviceId)) return null;
-        var reminder = _reminders.GetOrAdd(request.DeviceId, id => new Reminder { DeviceId = id, Enabled = false, Time = new TimeOnly(7, 30), TimeZoneId = "Asia/Taipei" });
-        reminder.Subscription = new PushSubscription(request.Endpoint, request.P256dh, request.Auth, DateTimeOffset.UtcNow);
-        return reminder;
+        var item = await db.Reminders.AsNoTracking().SingleOrDefaultAsync(reminder => reminder.DeviceId == deviceId);
+        return item is null ? null : ToModel(item);
     }
 
-    public IEnumerable<Reminder> GetDueReminders(DateTimeOffset utcNow)
+    public async Task<Reminder?> SaveSubscription(SavePushSubscriptionRequest request)
     {
-        foreach (var reminder in _reminders.Values.Where(item => item.Enabled && item.Subscription is not null))
+        if (!await db.Devices.AnyAsync(device => device.Id == request.DeviceId)) return null;
+        var item = await db.Reminders.FindAsync(request.DeviceId) ?? new ReminderEntity { DeviceId = request.DeviceId, Time = new TimeOnly(7, 30) };
+        item.Endpoint = request.Endpoint; item.P256dh = request.P256dh; item.Auth = request.Auth; item.SubscriptionUpdatedAt = DateTimeOffset.UtcNow;
+        if (db.Entry(item).State == EntityState.Detached) db.Reminders.Add(item);
+        await db.SaveChangesAsync();
+        return ToModel(item);
+    }
+
+    public async Task<IReadOnlyList<Reminder>> GetDueReminders(DateTimeOffset utcNow)
+    {
+        var items = await db.Reminders.Where(item => item.Enabled && item.Endpoint != null && item.P256dh != null && item.Auth != null).ToListAsync();
+        var due = new List<Reminder>();
+        foreach (var item in items)
         {
-            TimeZoneInfo zone;
-            try { zone = TimeZoneInfo.FindSystemTimeZoneById(reminder.TimeZoneId); } catch { zone = TimeZoneInfo.Utc; }
-            var local = TimeZoneInfo.ConvertTime(utcNow, zone);
-            if (local.Hour != reminder.Time.Hour || local.Minute != reminder.Time.Minute) continue;
-            if (reminder.LastScheduledAt?.UtcDateTime.Minute == utcNow.UtcDateTime.Minute) continue;
-            reminder.LastScheduledAt = utcNow;
-            yield return reminder;
+            try
+            {
+                var local = TimeZoneInfo.ConvertTime(utcNow, TimeZoneInfo.FindSystemTimeZoneById(item.TimeZoneId));
+                if (local.Hour != item.Time.Hour || local.Minute != item.Time.Minute || item.LastScheduledAt?.UtcDateTime.Minute == utcNow.UtcDateTime.Minute) continue;
+                item.LastScheduledAt = utcNow;
+                due.Add(ToModel(item));
+            }
+            catch (TimeZoneNotFoundException) { }
         }
+        if (due.Count > 0) await db.SaveChangesAsync();
+        return due;
     }
+
+    private static Reminder ToModel(ReminderEntity item) => new()
+    {
+        DeviceId = item.DeviceId, Enabled = item.Enabled, Time = item.Time, TimeZoneId = item.TimeZoneId, LastScheduledAt = item.LastScheduledAt,
+        Subscription = item.Endpoint is null || item.P256dh is null || item.Auth is null ? null : new PushSubscription(item.Endpoint, item.P256dh, item.Auth, item.SubscriptionUpdatedAt ?? DateTimeOffset.UtcNow)
+    };
 }

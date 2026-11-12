@@ -49,7 +49,18 @@ self.addEventListener("message", (event) => {
   }));
 });
 
+self.addEventListener("push", (event) => {
+  const payload = event.data?.json?.() ?? {};
+  event.waitUntil(self.registration.showNotification(payload.title || "Weather Outfit", {
+    body: payload.body || "今日穿搭建議已準備好。",
+    icon: "./icon.svg",
+    badge: "./icon.svg",
+    tag: "weather-outfit-daily",
+    data: { url: payload.url || "./" },
+  }));
+});
+
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(clients.openWindow("./"));
+  event.waitUntil(clients.openWindow(event.notification.data?.url || "./"));
 });
