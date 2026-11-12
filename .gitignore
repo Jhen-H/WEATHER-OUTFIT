@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.tsbuildinfo
+# TypeScript 對 Vite 設定檔產生的本機建置輸出
+vite.config.js
+vite.config.d.ts
+.env
+.env.*
+!.env.example
+.openai/

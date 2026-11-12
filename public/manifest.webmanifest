@@ -1,0 +1,19 @@
+{
+  "name": "Weather Outfit 每日穿搭",
+  "short_name": "Weather Outfit",
+  "description": "依照今日天氣給你穿搭建議。",
+  "lang": "zh-Hant",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fdf0ef",
+  "theme_color": "#fdf0ef",
+  "icons": [
+    {
+      "src": "./icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

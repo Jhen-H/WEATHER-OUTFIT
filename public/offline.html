@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#fdf0ef" />
+    <title>暫時離線｜Weather Outfit</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px; box-sizing: border-box; background: #fdf0ef; color: #423d42; font-family: system-ui, sans-serif; }
+      main { max-width: 360px; text-align: center; background: rgba(255,255,255,.78); padding: 36px 28px; border-radius: 28px; box-shadow: 0 16px 40px rgba(90,62,74,.12); }
+      .icon { font-size: 48px; } h1 { font-size: 24px; margin: 16px 0 8px; } p { line-height: 1.7; color: #6d6368; } button { border: 0; padding: 12px 18px; border-radius: 999px; background: #d97983; color: white; font: inherit; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="icon">☁︎</div>
+      <h1>目前沒有網路</h1>
+      <p>連上網路後，就能更新今天的天氣與穿搭建議。</p>
+      <button onclick="location.reload()">重新嘗試</button>
+    </main>
+  </body>
+</html>
