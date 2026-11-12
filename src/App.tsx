@@ -135,7 +135,7 @@ function PwaInstall() {
   }, []);
   if (!installEvent) return null;
   async function install() { const promptEvent = installEvent; if (!promptEvent) return; await promptEvent.prompt(); setInstallEvent(null); }
-  return <button className="install-button" title="安裝後可離線開啟基本畫面" onClick={() => void install()}>＋ 離線使用</button>;
+  return <button className="install-button" title="安裝後可從主畫面開啟，也能啟用 iPhone 的背景提醒" onClick={() => void install()}>＋ 安裝 App</button>;
 }
 function FavoritesView({ favorites, onBack, onRemove }: { favorites: Preferences["favorites"]; onBack: () => void; onRemove: (id: string) => void }) { return <><PageHeader title="我的收藏" subtitle="留住以後還想再穿的搭配。" onBack={onBack} />{favorites.length === 0 ? <section className="empty-card"><span>♡</span><h2>還沒有收藏</h2><p>回到首頁，從喜歡的穿搭按下「加入收藏」。</p></section> : <section className="favorites-list">{favorites.map((item) => <article key={item.id}><img src={item.image} alt="" /><div><h2>{item.title}</h2><p>{item.items.join(" · ")}</p><button onClick={() => onRemove(item.id)}>移除收藏</button></div></article>)}</section>}</> }
 function WhyView({ onBack }: { onBack: () => void }) { return <><PageHeader title="推薦依據說明" subtitle="先確保你穿得舒服，再靠近你的風格。" onBack={onBack} /><section className="settings-card explanation"><h2>推薦順序</h2><ol><li><b>天氣適合度：</b>最低溫、最高溫、日夜溫差、降雨機率與紫外線會先評估。</li><li><b>首頁場合：</b>通勤、上課等情境會先篩出相符穿搭。</li><li><b>你的偏好：</b>衣物與色系會優先排序，不會因為缺少完全相同的照片而讓某個場合沒有建議。</li></ol><p>目前有 24 套實際穿著的示範造型；每套已建立天氣、場合與偏好標籤。後續只要新增照片與標籤，就能擴充推薦內容。</p></section></> }

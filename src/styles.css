@@ -50,7 +50,7 @@ select { border: 1px solid #eedbd8; border-radius: 10px; background: #fff; paddi
 /* 服飾照片頁卡：照片本身就是選項的主要辨識，不再只是小圖示。 */
 .selection-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); width: min(100%, 520px); margin: 0 auto; column-gap: 14px; row-gap: 18px; padding: 8px 2px 12px; }
 .choice-card { position: relative; grid-template-columns: 1fr; grid-template-rows: auto auto; gap: 6px; min-height: 0; padding: 6px 4px 8px; overflow: hidden; font-size: .8rem; font-weight: 800; line-height: 1.25; text-align: center; }
-.choice-card .clothing-icon { grid-column: 1; width: 100%; height: auto; aspect-ratio: 1 / 1; border-radius: 9px; overflow: hidden; background: #f4ebe8; }
+.choice-card .clothing-icon { grid-column: 1; width: 100%; height: auto; aspect-ratio: 1 / 1; border-radius: 9px; overflow: hidden; background: #fae6e0; }
 .choice-card .clothing-icon img { display: block; width: 86%; height: 86%; margin: 5px auto 0; object-fit: contain; object-position: top center; transform: none; }
 .choice-card > b { position: absolute; top: 6px; right: 6px; z-index: 1; border-radius: 999px; background: #fff; padding: 1px 4px; font-size: .72rem; line-height: 1; }
 .choice-card.selected { box-shadow: 0 0 0 2px #c9786d, 0 7px 16px #c9786d2b; }
