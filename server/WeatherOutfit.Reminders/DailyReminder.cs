@@ -47,17 +47,13 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
     {
         try
         {
-            var url = $"https://api.open-meteo.com/v1/forecast?latitude={reminder.Latitude}&longitude={reminder.Longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=Asia%2FTaipei";
+            var apiBase = (config["WeatherApiBaseUrl"] ?? "https://weather-outfit-api-jhen2026-fgedbwhahdd4dzdx.japanwest-01.azurewebsites.net").TrimEnd('/');
+            var url = $"{apiBase}/api/notification-advice?cityName={Uri.EscapeDataString(reminder.CityName)}&latitude={reminder.Latitude}&longitude={reminder.Longitude}";
             using var response = await http.GetAsync(url);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync();
             using var data = await JsonDocument.ParseAsync(stream);
-            var daily = data.RootElement.GetProperty("daily");
-            var high = Math.Round(daily.GetProperty("temperature_2m_max")[0].GetDouble());
-            var low = Math.Round(daily.GetProperty("temperature_2m_min")[0].GetDouble());
-            var rainChance = daily.GetProperty("precipitation_probability_max")[0].GetInt32();
-            var weatherCode = daily.GetProperty("weather_code")[0].GetInt32();
-            return $"{reminder.CityName}今天{WeatherLabel(weatherCode)}，{low:0}–{high:0}°C。{OutfitAdvice(low, high, rainChance)}。點開查看完整搭配。";
+            return data.RootElement.GetProperty("body").GetString() ?? $"{reminder.CityName}今日穿搭建議已準備好。點開查看完整搭配。";
         }
         catch (Exception error)
         {

@@ -15,17 +15,17 @@ public sealed class PushSender(IConfiguration configuration, ILogger<PushSender>
         if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(publicKey) || string.IsNullOrWhiteSpace(privateKey))
             throw new InvalidOperationException("尚未設定 VAPID 金鑰。請在 User Secrets 或雲端環境變數設定 Vapid:Subject、PublicKey、PrivateKey。");
 
-        var payload = JsonSerializer.Serialize(new { title = "Weather Outfit｜今日穿搭", body = await BuildNotificationBody(reminder, cancellationToken), url = "/WEATHER-OUTFIT/" });
+        var payload = JsonSerializer.Serialize(new { title = "Weather Outfit｜今日穿搭", body = await GetAdviceAsync(reminder.CityName, reminder.Latitude, reminder.Longitude, cancellationToken), url = "/WEATHER-OUTFIT/" });
         var subscription = new WebPush.PushSubscription(reminder.Subscription.Endpoint, reminder.Subscription.P256dh, reminder.Subscription.Auth);
         await new WebPushClient().SendNotificationAsync(subscription, payload, new VapidDetails(subject, publicKey, privateKey));
         logger.LogInformation("Push sent to device {DeviceId}", reminder.DeviceId);
     }
 
-    private async Task<string> BuildNotificationBody(Reminder reminder, CancellationToken cancellationToken)
+    public async Task<string> GetAdviceAsync(string cityName, double latitude, double longitude, CancellationToken cancellationToken = default)
     {
         try
         {
-            var url = $"https://api.open-meteo.com/v1/forecast?latitude={reminder.Latitude}&longitude={reminder.Longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=Asia%2FTaipei";
+            var url = $"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=Asia%2FTaipei";
             using var response = await http.GetAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -35,12 +35,12 @@ public sealed class PushSender(IConfiguration configuration, ILogger<PushSender>
             var low = Math.Round(daily.GetProperty("temperature_2m_min")[0].GetDouble());
             var rainChance = daily.GetProperty("precipitation_probability_max")[0].GetInt32();
             var weatherCode = daily.GetProperty("weather_code")[0].GetInt32();
-            return $"{reminder.CityName}今天{WeatherLabel(weatherCode)}，{low:0}–{high:0}°C。{OutfitAdvice(low, high, rainChance)}。點開查看完整搭配。";
+            return $"{cityName}今天{WeatherLabel(weatherCode)}，{low:0}–{high:0}°C。{OutfitAdvice(low, high, rainChance)}。點開查看完整搭配。";
         }
         catch (Exception error)
         {
-            logger.LogWarning(error, "Unable to get weather for push notification for {CityName}", reminder.CityName);
-            return $"{reminder.CityName}今日穿搭建議已準備好。點開查看完整搭配。";
+            logger.LogWarning(error, "Unable to get weather for push notification for {CityName}", cityName);
+            return $"{cityName}今日穿搭建議已準備好。點開查看完整搭配。";
         }
     }
 

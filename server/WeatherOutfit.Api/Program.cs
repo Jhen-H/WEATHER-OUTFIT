@@ -51,6 +51,8 @@ app.MapGet("/api/push-public-key", (IConfiguration configuration) =>
         ? Results.Problem("VAPID public key has not been configured.", statusCode: StatusCodes.Status503ServiceUnavailable)
         : Results.Ok(new { publicKey });
 });
+app.MapGet("/api/notification-advice", async (string cityName, double latitude, double longitude, PushSender sender) =>
+    Results.Ok(new { body = await sender.GetAdviceAsync(cityName, latitude, longitude) }));
 app.MapPost("/api/devices", async (RegisterDeviceRequest request, ReminderStore store) =>
 {
     var device = await store.RegisterDevice(request.DeviceName);
