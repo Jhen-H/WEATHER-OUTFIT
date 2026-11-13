@@ -25,7 +25,6 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContext<WeatherOutfitDbContext>(options => options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
 builder.Services.AddScoped<ReminderStore>();
 builder.Services.AddSingleton<PushSender>();
-builder.Services.AddHostedService<ReminderScheduler>();
 
 var app = builder.Build();
 app.UseCors(frontendPolicy);
