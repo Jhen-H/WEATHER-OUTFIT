@@ -129,11 +129,12 @@ function ReminderSettings({ city, reminder, onChange }: { city: { name: string; 
     const permission = await Notification.requestPermission();
     if (permission !== "granted") { setTestStatus("尚未取得通知權限；請在瀏覽器設定中允許通知後再試。 "); return; }
     try { await sendServerPushTest(); setTestStatus("已送出依今日天氣生成的測試推播，請查看系統通知。 "); }
-    catch {
+    catch (error) {
       const registration = await navigator.serviceWorker.ready;
       if (registration.active) registration.active.postMessage({ type: "SHOW_TEST_NOTIFICATION" });
       else await registration.showNotification("Weather Outfit", { body: "本機通知測試成功。", icon: `${import.meta.env.BASE_URL}icon.svg`, tag: "weather-outfit-test" });
-      setTestStatus("雲端推播暫時無法使用；已改用本機通知測試。 ");
+      const reason = error instanceof Error ? error.message : "未知錯誤";
+      setTestStatus(`雲端推播失敗：${reason}；已改用本機通知測試。`);
     }
   }
   return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會記住目前的 {city.name}，每天固定於台灣時間 07:30 依當日天氣推送簡短穿搭建議。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `每天 07:30 · ${city.name}` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>每天 07:30（台灣時間）</b></p><div className="notification-test"><button type="button" onClick={() => void sendTestNotification()}>發送測試通知</button><small>{testStatus || "後端部署到 HTTPS 後，可用這裡確認真正的背景推播。"}</small></div></section>;
