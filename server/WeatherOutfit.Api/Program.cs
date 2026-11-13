@@ -24,7 +24,7 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("找不到 ConnectionStrings:WeatherOutfit。請用 .NET User Secrets 設定 Azure SQL 連線字串。");
 builder.Services.AddDbContext<WeatherOutfitDbContext>(options => options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
 builder.Services.AddScoped<ReminderStore>();
-builder.Services.AddSingleton<PushSender>();
+builder.Services.AddHttpClient<PushSender>();
 
 var app = builder.Build();
 app.UseCors(frontendPolicy);
