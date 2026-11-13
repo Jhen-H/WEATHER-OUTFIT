@@ -50,6 +50,29 @@ export type Weather = {
   weatherCode: number;
 };
 
+// Open-Meteo 暫時無法連線時，仍保留完整七日版面；避免「一週」頁面只剩今天一筆。
+export function createFallbackForecast(): Weather[] {
+  const start = new Date();
+  start.setHours(12, 0, 0, 0);
+  return Array.from({ length: 7 }, (_, index) => {
+    const date = new Date(start);
+    date.setDate(start.getDate() + index);
+    const high = 32 - (index % 3);
+    const low = 23 - (index % 2);
+    return {
+      date: date.toISOString().slice(0, 10),
+      temperature: Math.round((high + low) / 2),
+      apparentTemperature: Math.round((high + low) / 2) + 1,
+      high,
+      low,
+      rainChance: [40, 30, 20, 50, 35, 25, 30][index],
+      uvIndex: 6,
+      windSpeed: 9,
+      weatherCode: index === 3 ? 61 : index === 1 ? 2 : 1,
+    };
+  });
+}
+
 export function formatForecastDay(date: string, index: number) {
   if (index === 0) return "今天";
   if (index === 1) return "明天";

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { clothingOptions, colorOptions, loadPreferences, occasions, presentationOptions, savePreferences, type OccasionId, type Preferences } from "./preferences";
 import { makeOutfits, type Outfit } from "./recommendation";
-import { cities, findNearestCity, formatForecastDay, formatShortDate, getWeatherForecast, weatherLabel, type Weather } from "./weather";
+import { cities, createFallbackForecast, findNearestCity, formatForecastDay, formatShortDate, getWeatherForecast, weatherLabel, type Weather } from "./weather";
 import { ClothingIcon } from "./ClothingIcon";
 import { savePushReminder, sendServerPushTest } from "./pushReminder";
 
@@ -12,7 +12,7 @@ type ForecastView = "today" | "tomorrow" | "week";
 export default function App() {
   const [cityId, setCityId] = useState("taichung");
   const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
-  const [forecast, setForecast] = useState<Weather[]>([initialWeather]);
+  const [forecast, setForecast] = useState<Weather[]>(() => createFallbackForecast());
   const [forecastView, setForecastView] = useState<ForecastView>("today");
   const [status, setStatus] = useState("正在更新天氣資料…");
   const [locationError, setLocationError] = useState<string | null>(null);
@@ -41,7 +41,11 @@ export default function App() {
     getWeatherForecast(city).then((result) => {
       if (!active) return;
       setForecast(result); setStatus("未來 7 天天氣資料已更新");
-    }).catch(() => active && setStatus("目前顯示範例天氣資料"));
+    }).catch(() => {
+      if (!active) return;
+      setForecast(createFallbackForecast());
+      setStatus("目前顯示 7 天範例天氣資料");
+    });
     return () => { active = false; };
   }, [city]);
 
