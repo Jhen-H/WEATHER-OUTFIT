@@ -1,4 +1,4 @@
-const CACHE_NAME = "weather-outfit-v1";
+const CACHE_NAME = "weather-outfit-v2";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./offline.html"];
 
 self.addEventListener("install", (event) => {
@@ -55,7 +55,8 @@ self.addEventListener("push", (event) => {
     body: payload.body || "今日穿搭建議已準備好。",
     icon: "./icon.svg",
     badge: "./icon.svg",
-    tag: "weather-outfit-daily",
+    tag: `weather-outfit-${Date.now()}`,
+    renotify: true,
     data: { url: payload.url || "./" },
   }));
 });
