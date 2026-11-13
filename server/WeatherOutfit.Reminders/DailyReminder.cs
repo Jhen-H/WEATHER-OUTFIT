@@ -2,7 +2,6 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using System.Net.Http.Json;
 using System.Text.Json;
 using WebPush;
 
@@ -44,20 +43,27 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
         }
     }
 
-    private static async Task<string> BuildNotificationBody(HttpClient http, PushTarget reminder)
+    private async Task<string> BuildNotificationBody(HttpClient http, PushTarget reminder)
     {
         try
         {
             var url = $"https://api.open-meteo.com/v1/forecast?latitude={reminder.Latitude}&longitude={reminder.Longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=Asia%2FTaipei";
-            var data = await http.GetFromJsonAsync<JsonDocument>(url);
-            var daily = data!.RootElement.GetProperty("daily");
+            using var response = await http.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+            await using var stream = await response.Content.ReadAsStreamAsync();
+            using var data = await JsonDocument.ParseAsync(stream);
+            var daily = data.RootElement.GetProperty("daily");
             var high = Math.Round(daily.GetProperty("temperature_2m_max")[0].GetDouble());
             var low = Math.Round(daily.GetProperty("temperature_2m_min")[0].GetDouble());
             var rainChance = daily.GetProperty("precipitation_probability_max")[0].GetInt32();
             var weatherCode = daily.GetProperty("weather_code")[0].GetInt32();
             return $"{reminder.CityName}今天{WeatherLabel(weatherCode)}，{low:0}–{high:0}°C。{OutfitAdvice(low, high, rainChance)}。點開查看完整搭配。";
         }
-        catch { return $"{reminder.CityName}今日穿搭建議已準備好。點開查看完整搭配。"; }
+        catch (Exception error)
+        {
+            logger.LogWarning(error, "Unable to get weather for push notification for {CityName}", reminder.CityName);
+            return $"{reminder.CityName}今日穿搭建議已準備好。點開查看完整搭配。";
+        }
     }
 
     private static string OutfitAdvice(double low, double high, int rainChance)
