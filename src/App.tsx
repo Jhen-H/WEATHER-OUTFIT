@@ -21,7 +21,11 @@ export default function App() {
   const [view, setView] = useState<View>("home");
   const [preferences, setPreferences] = useState<Preferences>(() => loadPreferences());
   const [occasion, setOccasion] = useState<OccasionId>(() => loadPreferences().defaultOccasion);
-  const city = useMemo(() => currentLocation ? { id: "current", name: "目前位置", ...currentLocation } : cities.find((item) => item.id === cityId)!, [cityId, currentLocation]);
+  const city = useMemo(() => {
+    if (!currentLocation) return cities.find((item) => item.id === cityId)!;
+    const nearest = findNearestCity(currentLocation.latitude, currentLocation.longitude);
+    return { id: "current", name: nearest.name, ...currentLocation };
+  }, [cityId, currentLocation]);
   const selectedDay = forecastView === "tomorrow" ? 1 : 0;
   const weather = forecast[selectedDay] ?? forecast[0] ?? initialWeather;
   const outfits = useMemo(() => makeOutfits(weather, preferences, occasion), [weather, preferences, occasion]);
@@ -33,6 +37,11 @@ export default function App() {
   const range = weather.high - weather.low;
 
   useEffect(() => { savePreferences(preferences); }, [preferences]);
+  // 使用者切換縣市後，若已開啟提醒便同步這台裝置的提醒城市；不再要求重新關開提醒。
+  useEffect(() => {
+    if (!preferences.reminder.enabled) return;
+    void savePushReminder(preferences.reminder, city).catch(() => undefined);
+  }, [city.id, city.name, city.latitude, city.longitude, preferences.reminder]);
   useEffect(() => { if (outfitIndex >= outfits.length) setOutfitIndex(0); }, [outfitIndex, outfits.length]);
   useEffect(() => { setOutfitIndex(0); }, [preferences.clothingIds, preferences.colorIds, preferences.presentation, occasion]);
   useEffect(() => {
