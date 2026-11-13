@@ -80,7 +80,7 @@ export default function App() {
   const weatherMood = weather.weatherCode <= 1 ? "clear" : weather.weatherCode <= 3 ? "cloudy" : "rainy";
   const selectedDayLabel = formatForecastDay(weather.date, selectedDay);
   return <main className={`app-shell weather-${weatherMood}`}><section className="app-card" aria-label="Weather Outfit 今日穿搭">
-    {view === "preferences" && <PreferencesView preferences={preferences} setPreferences={setPreferences} toggleValue={toggleValue} setOccasion={setOccasion} onBack={() => setView("home")} onFavorites={() => setView("favorites")} onWhy={() => setView("why")} />}
+    {view === "preferences" && <PreferencesView city={city} preferences={preferences} setPreferences={setPreferences} toggleValue={toggleValue} setOccasion={setOccasion} onBack={() => setView("home")} onFavorites={() => setView("favorites")} onWhy={() => setView("why")} />}
     {view === "favorites" && <FavoritesView favorites={preferences.favorites} onBack={() => setView("preferences")} onRemove={removeFavorite} />}
     {view === "why" && <WhyView onBack={() => setView("preferences")} />}
     {view === "home" && <>
@@ -92,7 +92,7 @@ export default function App() {
 }
 
 
-function PreferencesView({ preferences, setPreferences, toggleValue, setOccasion, onBack, onFavorites, onWhy }: { preferences: Preferences; setPreferences: React.Dispatch<React.SetStateAction<Preferences>>; toggleValue: (field: "clothingIds" | "colorIds", id: string) => void; setOccasion: (value: OccasionId) => void; onBack: () => void; onFavorites: () => void; onWhy: () => void }) {
+function PreferencesView({ city, preferences, setPreferences, toggleValue, setOccasion, onBack, onFavorites, onWhy }: { city: { name: string; latitude: number; longitude: number }; preferences: Preferences; setPreferences: React.Dispatch<React.SetStateAction<Preferences>>; toggleValue: (field: "clothingIds" | "colorIds", id: string) => void; setOccasion: (value: OccasionId) => void; onBack: () => void; onFavorites: () => void; onWhy: () => void }) {
   const groups = [...new Set(clothingOptions.map((item) => item.group))];
   return <>
     <PageHeader title="我的偏好" subtitle="這些設定只會儲存在這台裝置的瀏覽器中。" onBack={onBack} />
@@ -100,17 +100,17 @@ function PreferencesView({ preferences, setPreferences, toggleValue, setOccasion
     <section className="settings-card"><h2>我的衣物</h2><p>可複選，先勾你最常穿、希望優先出現在建議中的單品。</p>{groups.map((group) => <div className="choice-group" key={group}><h3>{group}</h3><div className="selection-grid">{clothingOptions.filter((item) => item.group === group).map((item) => <button key={item.id} aria-pressed={preferences.clothingIds.includes(item.id)} className={preferences.clothingIds.includes(item.id) ? "choice-card selected" : "choice-card"} onClick={() => toggleValue("clothingIds", item.id)}><span className="clothing-icon"><ClothingIcon id={item.id} /></span>{item.label}<b>{preferences.clothingIds.includes(item.id) ? "✓" : "+"}</b></button>)}</div></div>)}</section>
     <section className="settings-card"><h2>喜歡色系</h2><p>可複選，最多 3 種；幫助推薦更接近你的風格。</p><div className="color-grid">{colorOptions.map((item) => <button key={item.id} disabled={!preferences.colorIds.includes(item.id) && preferences.colorIds.length >= 3} className={preferences.colorIds.includes(item.id) ? "color-choice selected" : "color-choice"} onClick={() => toggleValue("colorIds", item.id)}><i style={{ background: item.swatch }} />{item.label}{preferences.colorIds.includes(item.id) && " ✓"}</button>)}</div></section>
     <section className="settings-card"><h2>預設場合</h2><p>打開首頁時，先替你選好這個情境；你仍可在首頁隨時切換。</p><div className="occasion-chips settings-chips">{occasions.map((item) => <button key={item.id} className={preferences.defaultOccasion === item.id ? "occasion-chip active" : "occasion-chip"} onClick={() => { setPreferences((value) => ({ ...value, defaultOccasion: item.id })); setOccasion(item.id); }}>{item.icon} {item.label}</button>)}</div></section>
-    <ReminderSettings reminder={preferences.reminder} onChange={(reminder) => setPreferences((value) => ({ ...value, reminder }))} />
+    <ReminderSettings city={city} reminder={preferences.reminder} onChange={(reminder) => setPreferences((value) => ({ ...value, reminder }))} />
     <div className="settings-links"><button onClick={onFavorites}>♡ 我的收藏 <span>{preferences.favorites.length}</span></button><button onClick={onWhy}>ⓘ 推薦依據說明</button></div>
   </>;
 }
 
-function ReminderSettings({ reminder, onChange }: { reminder: Preferences["reminder"]; onChange: (reminder: Preferences["reminder"]) => void }) {
+function ReminderSettings({ city, reminder, onChange }: { city: { name: string; latitude: number; longitude: number }; reminder: Preferences["reminder"]; onChange: (reminder: Preferences["reminder"]) => void }) {
   const [testStatus, setTestStatus] = useState("");
   async function syncReminder(nextReminder: Preferences["reminder"]) {
     onChange(nextReminder);
     if (!window.isSecureContext || !("serviceWorker" in navigator)) return;
-    try { await savePushReminder(nextReminder); setTestStatus(nextReminder.enabled ? "已儲存每日提醒並註冊這台裝置。" : "已關閉此裝置的每日提醒。"); }
+    try { await savePushReminder(nextReminder, city); setTestStatus(nextReminder.enabled ? `已儲存 ${city.name} 的每日提醒並註冊這台裝置。` : "已關閉此裝置的每日提醒。"); }
     catch (error) { setTestStatus(error instanceof Error ? error.message : "提醒設定暫時無法儲存。"); }
   }
   async function sendTestNotification() {
@@ -125,7 +125,7 @@ function ReminderSettings({ reminder, onChange }: { reminder: Preferences["remin
     try { await sendServerPushTest(); setTestStatus("後端已送出測試推播，請查看系統通知。 "); }
     catch { setTestStatus("本機通知測試成功；後端推播將在 API 部署到 HTTPS 後啟用。 "); }
   }
-  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會將這台裝置安全註冊到提醒服務；目前固定於台灣時間每日 07:30 推送。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? "每天 07:30 提醒" : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>每天 07:30（台灣時間）</b></p><div className="notification-test"><button type="button" onClick={() => void sendTestNotification()}>發送測試通知</button><small>{testStatus || "後端部署到 HTTPS 後，可用這裡確認真正的背景推播。"}</small></div></section>;
+  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會記住目前的 {city.name}，每天固定於台灣時間 07:30 依當日天氣推送簡短穿搭建議。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `每天 07:30 · ${city.name}` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>每天 07:30（台灣時間）</b></p><div className="notification-test"><button type="button" onClick={() => void sendTestNotification()}>發送測試通知</button><small>{testStatus || "後端部署到 HTTPS 後，可用這裡確認真正的背景推播。"}</small></div></section>;
 }
 
 function PageHeader({ title, subtitle, onBack }: { title: string; subtitle: string; onBack: () => void }) { return <header className="page-header"><button onClick={onBack}>← 回到首頁</button><p className="eyebrow">WEATHER OUTFIT</p><h1>{title}</h1><p>{subtitle}</p></header>; }

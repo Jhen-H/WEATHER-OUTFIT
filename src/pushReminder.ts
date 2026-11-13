@@ -2,6 +2,7 @@ const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:5099").r
 const deviceKey = "weather-outfit-device-id";
 
 type ReminderInput = { enabled: boolean; time: string };
+type ReminderCity = { name: string; latitude: number; longitude: number };
 
 function base64ToUint8Array(value: string) {
   const padding = "=".repeat((4 - (value.length % 4)) % 4);
@@ -25,7 +26,7 @@ async function getDeviceId() {
   return device.id;
 }
 
-export async function savePushReminder(reminder: ReminderInput) {
+export async function savePushReminder(reminder: ReminderInput, city: ReminderCity) {
   const deviceId = await getDeviceId();
   if (reminder.enabled) {
     const registration = await navigator.serviceWorker.ready;
@@ -38,7 +39,7 @@ export async function savePushReminder(reminder: ReminderInput) {
     }));
   }
   await responseJson(await fetch(`${apiBase}/api/reminders/${deviceId}`, {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: reminder.enabled, time: reminder.time, timeZoneId: "Asia/Taipei" }),
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: reminder.enabled, time: reminder.time, timeZoneId: "Asia/Taipei", cityName: city.name, latitude: city.latitude, longitude: city.longitude }),
   }));
 }
 

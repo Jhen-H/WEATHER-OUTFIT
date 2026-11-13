@@ -14,6 +14,7 @@ public sealed class WeatherOutfitDbContext(DbContextOptions<WeatherOutfitDbConte
         modelBuilder.Entity<DeviceEntity>().HasOne(device => device.Reminder).WithOne(reminder => reminder.Device).HasForeignKey<ReminderEntity>(reminder => reminder.DeviceId);
         modelBuilder.Entity<ReminderEntity>().HasKey(reminder => reminder.DeviceId);
         modelBuilder.Entity<ReminderEntity>().Property(reminder => reminder.TimeZoneId).HasMaxLength(100);
+        modelBuilder.Entity<ReminderEntity>().Property(reminder => reminder.CityName).HasMaxLength(50);
         modelBuilder.Entity<ReminderEntity>().Property(reminder => reminder.Endpoint).HasMaxLength(2048);
     }
 }
@@ -33,6 +34,9 @@ public sealed class ReminderEntity
     public bool Enabled { get; set; }
     public TimeOnly Time { get; set; }
     public string TimeZoneId { get; set; } = "Asia/Taipei";
+    public string CityName { get; set; } = "臺中市";
+    public double Latitude { get; set; } = 24.1477;
+    public double Longitude { get; set; } = 120.6736;
     public string? Endpoint { get; set; }
     public string? P256dh { get; set; }
     public string? Auth { get; set; }

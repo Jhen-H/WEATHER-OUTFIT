@@ -14,11 +14,13 @@ public sealed class ReminderStore(WeatherOutfitDbContext db)
         return device;
     }
 
-    public async Task<Reminder?> SaveReminder(Guid deviceId, bool enabled, TimeOnly time, string timeZoneId)
+    public async Task<Reminder?> SaveReminder(Guid deviceId, bool enabled, TimeOnly time, string timeZoneId, string cityName, double latitude, double longitude)
     {
         if (!await db.Devices.AnyAsync(device => device.Id == deviceId)) return null;
         var item = await db.Reminders.FindAsync(deviceId) ?? new ReminderEntity { DeviceId = deviceId };
         item.Enabled = enabled; item.Time = time; item.TimeZoneId = string.IsNullOrWhiteSpace(timeZoneId) ? "Asia/Taipei" : timeZoneId;
+        item.CityName = string.IsNullOrWhiteSpace(cityName) ? "臺中市" : cityName.Trim();
+        item.Latitude = latitude; item.Longitude = longitude;
         if (db.Entry(item).State == EntityState.Detached) db.Reminders.Add(item);
         await db.SaveChangesAsync();
         return ToModel(item);
@@ -61,7 +63,7 @@ public sealed class ReminderStore(WeatherOutfitDbContext db)
 
     private static Reminder ToModel(ReminderEntity item) => new()
     {
-        DeviceId = item.DeviceId, Enabled = item.Enabled, Time = item.Time, TimeZoneId = item.TimeZoneId, LastScheduledAt = item.LastScheduledAt,
+        DeviceId = item.DeviceId, Enabled = item.Enabled, Time = item.Time, TimeZoneId = item.TimeZoneId, CityName = item.CityName, Latitude = item.Latitude, Longitude = item.Longitude, LastScheduledAt = item.LastScheduledAt,
         Subscription = item.Endpoint is null || item.P256dh is null || item.Auth is null ? null : new PushSubscription(item.Endpoint, item.P256dh, item.Auth, item.SubscriptionUpdatedAt ?? DateTimeOffset.UtcNow)
     };
 }

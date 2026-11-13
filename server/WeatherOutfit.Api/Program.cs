@@ -33,6 +33,14 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<WeatherOutfitDbContext>();
     await db.Database.EnsureCreatedAsync();
+    await db.Database.ExecuteSqlRawAsync("""
+        IF COL_LENGTH('dbo.Reminders', 'CityName') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Reminders ADD CityName nvarchar(50) NOT NULL CONSTRAINT DF_Reminders_CityName DEFAULT N'臺中市';
+            ALTER TABLE dbo.Reminders ADD Latitude float NOT NULL CONSTRAINT DF_Reminders_Latitude DEFAULT 24.1477;
+            ALTER TABLE dbo.Reminders ADD Longitude float NOT NULL CONSTRAINT DF_Reminders_Longitude DEFAULT 120.6736;
+        END
+        """);
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "Weather Outfit API" }));
@@ -51,7 +59,7 @@ app.MapPost("/api/devices", async (RegisterDeviceRequest request, ReminderStore 
 app.MapPut("/api/reminders/{deviceId:guid}", async (Guid deviceId, UpdateReminderRequest request, ReminderStore store) =>
 {
     if (!TimeOnly.TryParse(request.Time, out var time)) return Results.BadRequest(new { message = "提醒時間需使用 HH:mm 格式。" });
-    var reminder = await store.SaveReminder(deviceId, request.Enabled, time, request.TimeZoneId);
+    var reminder = await store.SaveReminder(deviceId, request.Enabled, time, request.TimeZoneId, request.CityName, request.Latitude, request.Longitude);
     return reminder is null ? Results.NotFound(new { message = "找不到此裝置，請先註冊裝置。" }) : Results.Ok(reminder);
 });
 app.MapPost("/api/push-subscriptions", async (SavePushSubscriptionRequest request, ReminderStore store) =>
