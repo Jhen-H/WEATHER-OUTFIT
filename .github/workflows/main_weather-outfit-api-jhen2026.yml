@@ -7,6 +7,9 @@ on:
   push:
     branches:
       - 'main'
+    paths:
+      - 'server/WeatherOutfit.Api/**'
+      - '.github/workflows/main_weather-outfit-api-jhen2026.yml'
   workflow_dispatch:
 
 jobs:

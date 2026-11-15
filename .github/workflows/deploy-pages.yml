@@ -3,6 +3,14 @@ name: Deploy Weather Outfit to GitHub Pages
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'public/**'
+      - 'index.html'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'vite.config.*'
+      - '.github/workflows/deploy-pages.yml'
   workflow_dispatch:
 
 permissions:
