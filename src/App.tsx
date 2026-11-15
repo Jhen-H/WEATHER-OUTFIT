@@ -11,7 +11,6 @@ type ForecastView = "today" | "tomorrow" | "week";
 
 export default function App() {
   const [cityId, setCityId] = useState("taichung");
-  const [currentLocation, setCurrentLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [forecast, setForecast] = useState<Weather[]>(() => createFallbackForecast());
   const [forecastView, setForecastView] = useState<ForecastView>("today");
   const [status, setStatus] = useState("正在更新天氣資料…");
@@ -21,11 +20,7 @@ export default function App() {
   const [view, setView] = useState<View>("home");
   const [preferences, setPreferences] = useState<Preferences>(() => loadPreferences());
   const [occasion, setOccasion] = useState<OccasionId>(() => loadPreferences().defaultOccasion);
-  const city = useMemo(() => {
-    if (!currentLocation) return cities.find((item) => item.id === cityId)!;
-    const nearest = findNearestCity(currentLocation.latitude, currentLocation.longitude);
-    return { id: "current", name: nearest.name, ...currentLocation };
-  }, [cityId, currentLocation]);
+  const city = useMemo(() => cities.find((item) => item.id === cityId) ?? cities[0], [cityId]);
   const selectedDay = forecastView === "tomorrow" ? 1 : 0;
   const weather = forecast[selectedDay] ?? forecast[0] ?? initialWeather;
   const outfits = useMemo(() => makeOutfits(weather, preferences, occasion), [weather, preferences, occasion]);
@@ -58,15 +53,24 @@ export default function App() {
     return () => { active = false; };
   }, [city]);
 
-  function changeCity(nextCity: string) { setCityId(nextCity); setCurrentLocation(null); setLocationError(null); setForecastView("today"); setOutfitIndex(0); setShowDetails(false); }
+  function changeCity(nextCity: string) { setCityId(nextCity); setLocationError(null); setForecastView("today"); setOutfitIndex(0); setShowDetails(false); }
   function useCurrentLocation() {
     if (!navigator.geolocation) { setLocationError("你的瀏覽器不支援定位，請手動選擇縣市"); return; }
     setLocationError(null);
     setStatus("正在取得你的位置…");
     navigator.geolocation.getCurrentPosition(
-      (position) => { const nearest = findNearestCity(position.coords.latitude, position.coords.longitude); setCurrentLocation({ latitude: position.coords.latitude, longitude: position.coords.longitude }); setStatus(`已取得目前位置，接近 ${nearest.name}`); setForecastView("today"); setOutfitIndex(0); },
+      (position) => {
+        const nearest = findNearestCity(position.coords.latitude, position.coords.longitude);
+        // 定位按鈕的語意是「跳到我所在縣市」；直接改選單城市，避免保留前一次選擇的座標。
+        setCityId(nearest.id);
+        setStatus(`已依目前位置切換為 ${nearest.name}`);
+        setForecastView("today");
+        setOutfitIndex(0);
+        setShowDetails(false);
+      },
       (error) => setLocationError(({ 1: "位置權限被拒絕，請在瀏覽器允許位置權限，或手動選擇縣市", 2: "目前無法取得位置，請確認裝置的位置服務是否開啟", 3: "取得位置逾時；可重新嘗試或手動選擇縣市" }[error.code] ?? "無法取得位置，請手動選擇縣市")),
-      { enableHighAccuracy: false, timeout: 30000, maximumAge: 300000 },
+      // 不採用舊的快取座標，否則使用者移動後仍可能被帶回上一個城市。
+      { enableHighAccuracy: true, timeout: 30000, maximumAge: 0 },
     );
   }
   function toggleValue(field: "clothingIds" | "colorIds", id: string) {
@@ -94,7 +98,7 @@ export default function App() {
     {view === "why" && <WhyView onBack={() => setView("preferences")} />}
     {view === "home" && <>
       <header className="topbar"><div><p className="eyebrow">WEATHER OUTFIT</p><h1>{forecastView === "week" ? "一週天氣預報" : `${selectedDayLabel}，穿得剛剛好`}</h1></div><div className="topbar-actions"><button className="icon-button" aria-label="我的偏好" onClick={() => setView("preferences")}>⚙</button></div></header>
-      <div className="city-row"><div className="city-controls"><label htmlFor="city">城市</label><select id="city" value={city.id} onChange={(event) => changeCity(event.target.value)}>{currentLocation && <option value="current">目前位置</option>}{cities.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><button className="location-button" onClick={useCurrentLocation}>⌖ 使用目前位置</button></div><div className="forecast-mode-tabs" aria-label="選擇預報範圍"><button className={forecastView === "today" ? "active" : ""} onClick={() => { setForecastView("today"); setOutfitIndex(0); setShowDetails(false); }}>今天</button><button className={forecastView === "tomorrow" ? "active" : ""} onClick={() => { setForecastView("tomorrow"); setOutfitIndex(0); setShowDetails(false); }}>明天</button><button className={forecastView === "week" ? "active" : ""} onClick={() => { setForecastView("week"); setShowDetails(false); }}>一週</button></div><div className="city-status">{locationError ? <><span className="sync-status error-status">{locationError}</span><button className="location-button" onClick={useCurrentLocation}>重新嘗試</button></> : <span className="sync-status">{status}</span>}</div></div>
+      <div className="city-row"><div className="city-controls"><label htmlFor="city">城市</label><select id="city" value={city.id} onChange={(event) => changeCity(event.target.value)}>{cities.map((item) => <option value={item.id} key={item.id}>{item.name}</option>)}</select><button className="location-button" onClick={useCurrentLocation}>⌖ 使用目前位置</button></div><div className="forecast-mode-tabs" aria-label="選擇預報範圍"><button className={forecastView === "today" ? "active" : ""} onClick={() => { setForecastView("today"); setOutfitIndex(0); setShowDetails(false); }}>今天</button><button className={forecastView === "tomorrow" ? "active" : ""} onClick={() => { setForecastView("tomorrow"); setOutfitIndex(0); setShowDetails(false); }}>明天</button><button className={forecastView === "week" ? "active" : ""} onClick={() => { setForecastView("week"); setShowDetails(false); }}>一週</button></div><div className="city-status">{locationError ? <><span className="sync-status error-status">{locationError}</span><button className="location-button" onClick={useCurrentLocation}>重新嘗試</button></> : <span className="sync-status">{status}</span>}</div></div>
       {forecastView === "week" ? <section className="weekly-weather-card"><p className="eyebrow">NEXT 7 DAYS</p>{forecast.slice(0, 7).map((day, index) => <article key={day.date}><div><b>{formatForecastDay(day.date, index)}</b><span>{formatShortDate(day.date)}</span></div><i aria-hidden="true">{weatherLabel(day.weatherCode).icon}</i><p>{weatherLabel(day.weatherCode).label}</p><strong>{day.high}° <small>/ {day.low}°</small></strong><em>降雨 {day.rainChance}%</em></article>)}</section> : <><section className="weather-card"><span className="weather-icon" aria-hidden="true">{weatherInfo.icon}</span><div><h2>{weatherInfo.label} <strong>{weather.temperature}°</strong></h2><p>{selectedDay === 0 ? `體感 ${weather.apparentTemperature}° · 風速 ${weather.windSpeed} km/h` : `預估日均 ${weather.temperature}° · 最大風速 ${weather.windSpeed} km/h`}</p></div><dl className="weather-stats"><div><dt>高 / 低</dt><dd>{weather.high}° / {weather.low}°</dd></div><div><dt>降雨</dt><dd>{weather.rainChance}%</dd></div><div><dt>UV</dt><dd>{weather.uvIndex}</dd></div></dl></section><section className="occasion-panel"><p className="eyebrow">{selectedDayLabel.toUpperCase()} PLAN</p><div className="occasion-chips">{occasions.map((item) => <button key={item.id} className={occasion === item.id ? "occasion-chip active" : "occasion-chip"} onClick={() => { setOccasion(item.id); setOutfitIndex(0); }}>{item.icon} {item.label}</button>)}</div></section>{outfit ? <section className="outfit-card"><div className="section-heading"><p className="eyebrow">{selectedDayLabel.toUpperCase()} OUTFIT</p><h2>{outfit.title}</h2><p className="outfit-items">{outfit.items.join(" · ")}</p></div><img src={outfit.image} alt={`${outfit.title} 的完整穿搭示意`} /><div className="reason-panel"><p><b>為什麼這樣穿？</b>{outfit.reason}</p><p className="tip">☂ {outfit.extra}</p>{range >= 8 && <p className="tip">↕ 日夜溫差 {range}°，分層穿搭更方便。</p>}<p className="match-note">{isExactPreferenceMatch ? `已依你的呈現偏好、衣物、色系與「${occasions.find((item) => item.id === occasion)?.label}」篩選推薦。` : `已優先符合「${occasions.find((item) => item.id === occasion)?.label}」與天氣；目前素材沒有完全符合你的${!matchesClothingPreference ? "衣物" : "色系"}偏好，因此顯示最接近的建議。`}</p></div><div className="actions"><button className="secondary" onClick={() => setOutfitIndex((outfitIndex + 1) % outfits.length)}>換一套</button><button className="secondary" onClick={() => setShowDetails(!showDetails)}>{showDetails ? "收起詳情" : "查看詳情"}</button><button className={isFavorite(outfit) ? "saved" : "primary"} onClick={() => toggleFavorite(outfit)}>{isFavorite(outfit) ? "已收藏 ♥" : "加入收藏 ♡"}</button></div>{showDetails && <div className="detail-box"><h3>穿搭清單</h3><ul>{outfit.items.map((item) => <li key={item}>{item}</li>)}</ul><p>推薦會先考慮天氣安全性，再顯示符合你勾選條件的造型。</p></div>}</section> : <section className="empty-card"><span>⌕</span><h2>目前沒有符合條件的搭配</h2><p>沒有隨機推薦，因為目前條件沒有對應照片。</p><div className="empty-actions"><button onClick={resetStyleFilters}>清除衣物、色系與呈現偏好</button><button onClick={() => setView("preferences")}>回到偏好調整</button></div></section>}</>}
     </>}
   </section></main>;

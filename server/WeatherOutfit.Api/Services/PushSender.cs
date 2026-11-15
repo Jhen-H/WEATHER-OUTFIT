@@ -25,7 +25,9 @@ public sealed class PushSender(IConfiguration configuration, ILogger<PushSender>
     {
         try
         {
-            var url = $"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&forecast_days=1&timezone=Asia%2FTaipei";
+            // 明確指定台灣「今天」的日期，而非依 API 預設時區或陣列索引猜測，避免通知誤用明天的預報。
+            var taiwanToday = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd");
+            var url = $"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&current=weather_code&timezone=Asia%2FTaipei&start_date={taiwanToday}&end_date={taiwanToday}";
             using var response = await http.GetAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -35,7 +37,18 @@ public sealed class PushSender(IConfiguration configuration, ILogger<PushSender>
             var low = Math.Round(daily.GetProperty("temperature_2m_min")[0].GetDouble());
             var rainChance = daily.GetProperty("precipitation_probability_max")[0].GetInt32();
             var weatherCode = daily.GetProperty("weather_code")[0].GetInt32();
-            return $"{cityName}今天{WeatherLabel(weatherCode)}，{low:0}–{high:0}°C。{OutfitAdvice(low, high, rainChance)}。點開查看完整搭配。";
+            var forecastDate = daily.GetProperty("time")[0].GetString() ?? taiwanToday;
+            var currentCode = data.RootElement.TryGetProperty("current", out var current)
+                && current.TryGetProperty("weather_code", out var currentWeather)
+                ? currentWeather.GetInt32()
+                : weatherCode;
+            var weatherSummary = rainChance >= 50
+                ? $"今天預報可能有雨（降雨 {rainChance}%）"
+                : $"今天預報{WeatherLabel(weatherCode)}（降雨 {rainChance}%）";
+            var currentSummary = currentCode != weatherCode
+                ? $"目前{WeatherLabel(currentCode)}；"
+                : string.Empty;
+            return $"{cityName}{currentSummary}{weatherSummary}，{low:0}–{high:0}°C（{forecastDate}）。{OutfitAdvice(low, high, rainChance)}。點開查看完整搭配。";
         }
         catch (Exception error)
         {
