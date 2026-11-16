@@ -10,7 +10,9 @@ namespace WeatherOutfit.Reminders;
 public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> logger)
 {
     [Function(nameof(DailyReminder))]
-    public async Task Run([TimerTrigger("0 30 7 * * *")] TimerInfo timer)
+    // Azure Timer 預設以 UTC 解讀；23:30 UTC 即台灣時間隔日 07:30。
+    // 不依賴 WEBSITE_TIME_ZONE，避免設定遺失時悄悄改成台灣下午 15:30 才執行。
+    public async Task Run([TimerTrigger("0 30 23 * * *")] TimerInfo timer)
     {
         var connectionString = config.GetConnectionString("WeatherOutfit") ?? config["ConnectionStrings:WeatherOutfit"];
         var subject = config["Vapid:Subject"]; var publicKey = config["Vapid:PublicKey"]; var privateKey = config["Vapid:PrivateKey"];
@@ -31,6 +33,8 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
             while (await reader.ReadAsync())
                 reminders.Add(new PushTarget(reader.GetGuid(0), reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetString(4), reader.GetDouble(5), reader.GetDouble(6)));
         }
+
+        logger.LogInformation("Daily reminder started at {Timestamp} UTC; {ReminderCount} device(s) eligible for 07:30 Taiwan reminders.", DateTimeOffset.UtcNow, reminders.Count);
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         var client = new WebPushClient();
