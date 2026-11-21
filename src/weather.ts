@@ -50,6 +50,13 @@ export type Weather = {
   weatherCode: number;
 };
 
+export type HourlyRain = {
+  time: string;
+  hour: string;
+  probability: number;
+  amount: number;
+};
+
 // Open-Meteo 暫時無法連線時，仍保留完整七日版面；避免「一週」頁面只剩今天一筆。
 export function createFallbackForecast(): Weather[] {
   const start = new Date();
@@ -111,6 +118,27 @@ export async function getWeatherForecast(city: City): Promise<Weather[]> {
       weatherCode: isToday ? data.current.weather_code : data.daily.weather_code[index],
     };
   });
+}
+
+// 使用者展開「降雨」時才請求，避免首頁每次載入都多打一支天氣 API。
+export async function getHourlyRainForecast(city: City, date: string): Promise<HourlyRain[]> {
+  const params = new URLSearchParams({
+    latitude: String(city.latitude),
+    longitude: String(city.longitude),
+    hourly: "precipitation_probability,precipitation",
+    start_date: date,
+    end_date: date,
+    timezone: "Asia/Taipei",
+  });
+  const response = await fetch(`https://api.open-meteo.com/v1/forecast?${params}`);
+  if (!response.ok) throw new Error("無法取得逐時降雨預報");
+  const data = await response.json();
+  return data.hourly.time.map((time: string, index: number): HourlyRain => ({
+    time,
+    hour: new Intl.DateTimeFormat("zh-TW", { hour: "2-digit", hourCycle: "h23", timeZone: "Asia/Taipei" }).format(new Date(`${time}:00+08:00`)),
+    probability: Math.round(data.hourly.precipitation_probability[index] ?? 0),
+    amount: Number(data.hourly.precipitation[index] ?? 0),
+  }));
 }
 
 export function weatherLabel(code: number) {
