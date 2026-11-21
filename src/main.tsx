@@ -6,7 +6,10 @@ import "./styles.css";
 // Service Worker 只在安全環境註冊；正式 HTTPS 與本機 loopback 都可測試 PWA。
 if (window.isSecureContext && "serviceWorker" in navigator) {
   window.addEventListener("load", () => {
-    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`).catch((error) => {
+    navigator.serviceWorker.register(`${import.meta.env.BASE_URL}service-worker.js`, { updateViaCache: "none" }).then((registration) => {
+      // iOS 已安裝的 App 也會主動檢查新版 Service Worker，而不是等待瀏覽器的週期性更新。
+      void registration.update();
+    }).catch((error) => {
       console.warn("PWA 離線功能註冊失敗", error);
     });
   });

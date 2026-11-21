@@ -1,4 +1,5 @@
-const CACHE_NAME = "weather-outfit-v2";
+// 變更安全性或 API 契約時必須遞增版本，避免已安裝的 PWA 持續執行舊版 JS。
+const CACHE_NAME = "weather-outfit-v3";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./offline.html"];
 
 self.addEventListener("install", (event) => {

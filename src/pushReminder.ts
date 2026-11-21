@@ -14,7 +14,12 @@ function base64ToUint8Array(value: string) {
 
 async function responseJson<T>(response: Response): Promise<T> {
   if (response.ok) return response.json() as Promise<T>;
-  throw new Error(`提醒服務暫時無法使用（${response.status}）`);
+  let detail = "";
+  try {
+    const body = await response.json() as { message?: string; detail?: string; title?: string };
+    detail = body.message ?? body.detail ?? body.title ?? "";
+  } catch { /* API 回應可能沒有 JSON 內容。 */ }
+  throw new Error(`提醒服務暫時無法使用（${response.status}）${detail ? `：${detail}` : ""}`);
 }
 
 async function getDeviceCredentials() {
