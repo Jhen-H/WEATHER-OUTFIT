@@ -4,6 +4,8 @@
 
 - 網站 Demo：https://jhen-h.github.io/WEATHER-OUTFIT/
 - 原始碼：https://github.com/Jhen-H/WEATHER-OUTFIT
+- 專案文件（Notion）：https://www.notion.so/App-2a255e5883f780209ba5ecb150b59a33
+- 設計原型（Figma）：https://www.figma.com/design/HymU0ZgztmfSzseY8shUHB/Weather-Outfit-App?node-id=12-73
 
 ## 作品亮點
 
@@ -19,11 +21,12 @@
 
 ```mermaid
 flowchart LR
-  U[使用者／PWA] -->|Open-Meteo| W[天氣預報]
+  U[使用者／PWA] -->|讀取天氣預報| W[Open-Meteo]
   U -->|HTTPS API| A[ASP.NET Core Web API]
   A --> S[(Azure SQL Database)]
-  F[Azure Function Timer\n每日 07:30 台灣時間] --> S
-  F --> A
+  A -->|取得通知天氣摘要| W
+  F[Azure Function Timer<br/>每日 07:30 台灣時間] -->|讀取提醒與通知紀錄| S
+  F -->|取得通知文案| A
   F --> P[Web Push / VAPID]
   P --> U
   G[GitHub Actions] --> GH[GitHub Pages]
@@ -57,11 +60,13 @@ flowchart LR
 ## 每日提醒如何運作
 
 1. 使用者在偏好頁啟用每日提醒，瀏覽器建立 Push 訂閱。
-2. 前端把裝置、提醒時間與目前選擇的城市傳到 API，API 寫入 Azure SQL。
+2. 前端把裝置與目前選擇的城市傳到 API，API 寫入 Azure SQL。
 3. Azure Function 每天 **台灣時間 07:30** 執行（固定使用 UTC 23:30，避免雲端時區設定造成偏差）。
 4. Function 讀取已啟用的裝置，向 API 取得該城市的當日預報摘要，再以 VAPID 發出 Web Push。
 
 通知中的「目前晴天；今天預報可能有雨」並不衝突：前半段是即時天氣，後半段是全天的最高降雨機率預報。
+
+> 目前提醒時間固定為每天 07:30（台灣時間）。資料庫的時間欄位是日後支援自訂提醒時間的預留設計，現階段不提供其他時間。
 
 ## 本機啟動
 
@@ -82,7 +87,7 @@ pnpm build
 
 ### API 與提醒 Function
 
-API 和 Function 需要設定下列機密，**不可提交到 Git**：
+API 與 Function App 都需要在 Azure Application Settings 設定下列機密，**不可提交到 Git**：
 
 - `ConnectionStrings__WeatherOutfit`：Azure SQL 連線字串
 - `Vapid__Subject`
@@ -96,6 +101,21 @@ dotnet run --project server/WeatherOutfit.Api --urls http://127.0.0.1:5099
 ```
 
 正式環境的值放在 Azure App Settings；GitHub Actions 使用 Azure OIDC 身分部署，不使用 publish profile。
+
+## API 與資料設計
+
+| 路由 | 用途 |
+| --- | --- |
+| `POST /api/devices` | 為此瀏覽器／主畫面 App 建立裝置識別碼。 |
+| `PUT /api/reminders/{deviceId}` | 儲存是否啟用提醒與選定縣市。 |
+| `POST /api/push-subscriptions` | 儲存瀏覽器建立的 Web Push 訂閱。 |
+| `POST /api/reminders/{deviceId}/test` | 對目前裝置送出雲端測試推播。 |
+
+| 資料表 | 儲存內容 |
+| --- | --- |
+| `Devices` | 裝置識別碼、簡短裝置名稱、建立時間。 |
+| `Reminders` | 是否啟用、固定 07:30、縣市、縣市座標與 Push 訂閱資訊。 |
+| `NotificationLogs` | 每日發送狀態；以「裝置＋日期」唯一鍵避免重複提醒。 |
 
 ## 專案結構
 
@@ -120,14 +140,16 @@ public/
 
 - iOS 必須使用 Safari 將網站「加入主畫面」，並允許通知，才能在背景收到 Web Push。
 - 偏好與收藏目前存在瀏覽器 localStorage，尚未提供帳號與跨裝置同步；提醒訂閱與提醒城市則存於 Azure SQL。
+- 使用「目前位置」時，原始 GPS 座標只在瀏覽器內用來找出最近縣市；送至後端的是該縣市的固定座標，不會儲存使用者的精確位置。
 - 免費或低階 App Service／Azure SQL 可能有冷啟動，UI 會保留載入與失敗提示。
 - 目前照片為示範素材；新增服飾類型時，需要同時建立素材與正確的推薦標籤。
 - 定時提醒以雲端服務執行，不依賴開發者電腦是否開機。
+- Web Push 訂閱失效時，Function 會在收到 404／410 後自動移除該訂閱；使用者可再次啟用提醒重新訂閱。
 
 ## 後續改善方向
 
-1. 推播可靠度：通知紀錄、防重複發送、失效訂閱清除與 Application Insights 告警。
-2. 安全性：提醒設定的裝置憑證、API rate limit、精確定位資料最小化。
+1. 推播可靠度：Application Insights 告警與失敗通知的營運監看。
+2. 安全性：提醒設定的裝置憑證與 API rate limit。
 3. 測試：為 `recommendation.ts` 建立雨天、溫差與偏好降級的單元測試。
 4. UX：加強離線、定位失敗與服務冷啟動的提示。
 5. 跨裝置同步：以帳號系統或匯出／匯入功能逐步導入。
