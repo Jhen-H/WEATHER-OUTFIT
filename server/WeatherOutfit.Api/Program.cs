@@ -41,6 +41,22 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE dbo.Reminders ADD Longitude float NOT NULL CONSTRAINT DF_Reminders_Longitude DEFAULT 120.6736;
         END
         """);
+    await db.Database.ExecuteSqlRawAsync("""
+        IF OBJECT_ID(N'dbo.NotificationLogs', N'U') IS NULL
+        BEGIN
+            CREATE TABLE dbo.NotificationLogs
+            (
+                Id bigint IDENTITY(1,1) NOT NULL PRIMARY KEY,
+                DeviceId uniqueidentifier NOT NULL,
+                ScheduledDate date NOT NULL,
+                CreatedAt datetimeoffset NOT NULL,
+                SentAt datetimeoffset NULL,
+                Status nvarchar(20) NOT NULL,
+                FailureReason nvarchar(500) NULL,
+                CONSTRAINT UQ_NotificationLogs_Device_ScheduledDate UNIQUE (DeviceId, ScheduledDate)
+            );
+        END
+        """);
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "Weather Outfit API" }));

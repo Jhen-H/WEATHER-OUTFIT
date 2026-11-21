@@ -2,6 +2,7 @@ using Microsoft.Azure.Functions.Worker;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Net;
 using System.Text.Json;
 using WebPush;
 
@@ -38,13 +39,88 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
 
         using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(12) };
         var client = new WebPushClient();
+        var scheduledDate = DateOnly.FromDateTime(DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).DateTime);
         foreach (var reminder in reminders)
         {
-            var body = await BuildNotificationBody(http, reminder);
-            var payload = JsonSerializer.Serialize(new { title = "Weather Outfit｜今日穿搭", body, url = "/WEATHER-OUTFIT/" });
-            try { await client.SendNotificationAsync(new PushSubscription(reminder.Endpoint, reminder.P256dh, reminder.Auth), payload, new VapidDetails(subject, publicKey, privateKey)); }
-            catch (WebPushException error) { logger.LogWarning(error, "Push failed for {DeviceId}", reminder.DeviceId); }
+            // DB 的唯一鍵保證同一台裝置在同一天最多送一次，即使 Function 被重跑也不會重複打擾使用者。
+            if (!await TryStartNotificationAsync(connectionString, reminder.DeviceId, scheduledDate))
+            {
+                logger.LogInformation("Skipping duplicate daily reminder for {DeviceId} on {ScheduledDate}", reminder.DeviceId, scheduledDate);
+                continue;
+            }
+
+            try
+            {
+                var body = await BuildNotificationBody(http, reminder);
+                var payload = JsonSerializer.Serialize(new { title = "Weather Outfit｜今日穿搭", body, url = "/WEATHER-OUTFIT/" });
+                await client.SendNotificationAsync(new PushSubscription(reminder.Endpoint, reminder.P256dh, reminder.Auth), payload, new VapidDetails(subject, publicKey, privateKey));
+                await CompleteNotificationAsync(connectionString, reminder.DeviceId, scheduledDate, "Sent", null);
+            }
+            catch (WebPushException error)
+            {
+                logger.LogWarning(error, "Push failed for {DeviceId}", reminder.DeviceId);
+                await CompleteNotificationAsync(connectionString, reminder.DeviceId, scheduledDate, "Failed", error.Message);
+                if (error.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
+                    await ClearInvalidSubscriptionAsync(connectionString, reminder.DeviceId);
+            }
+            catch (Exception error)
+            {
+                logger.LogError(error, "Unexpected daily reminder failure for {DeviceId}", reminder.DeviceId);
+                await CompleteNotificationAsync(connectionString, reminder.DeviceId, scheduledDate, "Failed", error.Message);
+            }
         }
+    }
+
+    private static async Task<bool> TryStartNotificationAsync(string connectionString, Guid deviceId, DateOnly scheduledDate)
+    {
+        try
+        {
+            await using var connection = new SqlConnection(connectionString);
+            await connection.OpenAsync();
+            await using var command = new SqlCommand("""
+                INSERT INTO NotificationLogs (DeviceId, ScheduledDate, CreatedAt, Status)
+                VALUES (@deviceId, @scheduledDate, @createdAt, N'Sending');
+                """, connection);
+            command.Parameters.AddWithValue("@deviceId", deviceId);
+            command.Parameters.AddWithValue("@scheduledDate", scheduledDate.ToDateTime(TimeOnly.MinValue));
+            command.Parameters.AddWithValue("@createdAt", DateTimeOffset.UtcNow);
+            await command.ExecuteNonQueryAsync();
+            return true;
+        }
+        catch (SqlException error) when (error.Number is 2601 or 2627)
+        {
+            return false;
+        }
+    }
+
+    private static async Task CompleteNotificationAsync(string connectionString, Guid deviceId, DateOnly scheduledDate, string status, string? failureReason)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("""
+            UPDATE NotificationLogs
+            SET Status = @status, SentAt = @sentAt, FailureReason = @failureReason
+            WHERE DeviceId = @deviceId AND ScheduledDate = @scheduledDate;
+            """, connection);
+        command.Parameters.AddWithValue("@status", status);
+        command.Parameters.AddWithValue("@sentAt", DateTimeOffset.UtcNow);
+        command.Parameters.AddWithValue("@failureReason", (object?)failureReason?.Substring(0, Math.Min(500, failureReason.Length)) ?? DBNull.Value);
+        command.Parameters.AddWithValue("@deviceId", deviceId);
+        command.Parameters.AddWithValue("@scheduledDate", scheduledDate.ToDateTime(TimeOnly.MinValue));
+        await command.ExecuteNonQueryAsync();
+    }
+
+    private static async Task ClearInvalidSubscriptionAsync(string connectionString, Guid deviceId)
+    {
+        await using var connection = new SqlConnection(connectionString);
+        await connection.OpenAsync();
+        await using var command = new SqlCommand("""
+            UPDATE Reminders
+            SET Endpoint = NULL, P256dh = NULL, Auth = NULL
+            WHERE DeviceId = @deviceId;
+            """, connection);
+        command.Parameters.AddWithValue("@deviceId", deviceId);
+        await command.ExecuteNonQueryAsync();
     }
 
     private async Task<string> BuildNotificationBody(HttpClient http, PushTarget reminder)
