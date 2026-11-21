@@ -117,6 +117,8 @@ dotnet run --project server/WeatherOutfit.Api --urls http://127.0.0.1:5099
 | `Reminders` | 是否啟用、固定 07:30、縣市、縣市座標與 Push 訂閱資訊。 |
 | `NotificationLogs` | 每日發送狀態；以「裝置＋日期」唯一鍵避免重複提醒。 |
 
+提醒設定 API 會對每台裝置建立一次性 `deviceSecret`，前端只保存在該裝置，伺服器僅保存其雜湊。更新提醒、寫入 Push 訂閱與測試推播都必須驗證此憑證；提醒寫入 API 另有每 IP 每分鐘 10 次的 rate limit，Push endpoint 僅接受受支援服務的 HTTPS 網址。
+
 ## 專案結構
 
 ```text
@@ -149,7 +151,6 @@ public/
 ## 後續改善方向
 
 1. 推播可靠度：Application Insights 告警與失敗通知的營運監看。
-2. 安全性：提醒設定的裝置憑證與 API rate limit。
-3. 測試：為 `recommendation.ts` 建立雨天、溫差與偏好降級的單元測試。
-4. UX：加強離線、定位失敗與服務冷啟動的提示。
-5. 跨裝置同步：以帳號系統或匯出／匯入功能逐步導入。
+2. 測試：為 `recommendation.ts` 建立雨天、溫差與偏好降級的單元測試。
+3. UX：加強離線、定位失敗與服務冷啟動的提示。
+4. 跨裝置同步：以帳號系統或匯出／匯入功能逐步導入。

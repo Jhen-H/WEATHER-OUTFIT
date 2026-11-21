@@ -1,5 +1,6 @@
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:5099").replace(/\/$/, "");
 const deviceKey = "weather-outfit-device-id";
+const deviceSecretKey = "weather-outfit-device-secret";
 
 type ReminderInput = { enabled: boolean; time: string };
 type ReminderCity = { name: string; latitude: number; longitude: number };
@@ -16,18 +17,23 @@ async function responseJson<T>(response: Response): Promise<T> {
   throw new Error(`提醒服務暫時無法使用（${response.status}）`);
 }
 
-async function getDeviceId() {
+async function getDeviceCredentials() {
   const existing = localStorage.getItem(deviceKey);
-  if (existing) return existing;
-  const device = await responseJson<{ id: string }>(await fetch(`${apiBase}/api/devices`, {
+  const existingSecret = localStorage.getItem(deviceSecretKey);
+  if (existing && existingSecret) return { id: existing, secret: existingSecret };
+  // 舊版 App 沒有 deviceSecret；重新註冊後會由後端清掉相同 Push endpoint 的舊紀錄。
+  localStorage.removeItem(deviceKey);
+  localStorage.removeItem(deviceSecretKey);
+  const device = await responseJson<{ id: string; secret: string }>(await fetch(`${apiBase}/api/devices`, {
     method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceName: navigator.userAgent.slice(0, 100) }),
   }));
   localStorage.setItem(deviceKey, device.id);
-  return device.id;
+  localStorage.setItem(deviceSecretKey, device.secret);
+  return device;
 }
 
 export async function savePushReminder(reminder: ReminderInput, city: ReminderCity) {
-  const deviceId = await getDeviceId();
+  const device = await getDeviceCredentials();
   if (reminder.enabled) {
     const registration = await navigator.serviceWorker.ready;
     const key = await responseJson<{ publicKey: string }>(await fetch(`${apiBase}/api/push-public-key`));
@@ -35,16 +41,17 @@ export async function savePushReminder(reminder: ReminderInput, city: ReminderCi
     const json = subscription.toJSON();
     await responseJson(await fetch(`${apiBase}/api/push-subscriptions`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId, endpoint: json.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth }),
+      body: JSON.stringify({ deviceId: device.id, deviceSecret: device.secret, endpoint: json.endpoint, p256dh: json.keys?.p256dh, auth: json.keys?.auth }),
     }));
   }
-  await responseJson(await fetch(`${apiBase}/api/reminders/${deviceId}`, {
-    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: reminder.enabled, time: reminder.time, timeZoneId: "Asia/Taipei", cityName: city.name, latitude: city.latitude, longitude: city.longitude }),
+  await responseJson(await fetch(`${apiBase}/api/reminders/${device.id}`, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: reminder.enabled, time: reminder.time, deviceSecret: device.secret, timeZoneId: "Asia/Taipei", cityName: city.name, latitude: city.latitude, longitude: city.longitude }),
   }));
 }
 
 export async function sendServerPushTest() {
   const deviceId = localStorage.getItem(deviceKey);
-  if (!deviceId) throw new Error("請先啟用每日提醒。");
-  await responseJson(await fetch(`${apiBase}/api/reminders/${deviceId}/test`, { method: "POST" }));
+  const deviceSecret = localStorage.getItem(deviceSecretKey);
+  if (!deviceId || !deviceSecret) throw new Error("請先啟用每日提醒。");
+  await responseJson(await fetch(`${apiBase}/api/reminders/${deviceId}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceSecret }) }));
 }

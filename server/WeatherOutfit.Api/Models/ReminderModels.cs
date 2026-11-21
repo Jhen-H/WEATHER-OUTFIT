@@ -4,12 +4,14 @@ public sealed record RegisterDeviceRequest(string? DeviceName);
 public sealed record UpdateReminderRequest(
     bool Enabled,
     string Time,
+    string DeviceSecret,
     string TimeZoneId = "Asia/Taipei",
     string CityName = "臺中市",
     double Latitude = 24.1477,
     double Longitude = 120.6736);
-public sealed record SavePushSubscriptionRequest(Guid DeviceId, string Endpoint, string P256dh, string Auth);
-public sealed record Device(Guid Id, string Name, DateTimeOffset CreatedAt);
+public sealed record SavePushSubscriptionRequest(Guid DeviceId, string DeviceSecret, string Endpoint, string P256dh, string Auth);
+public sealed record DeviceSecretRequest(string DeviceSecret);
+public sealed record Device(Guid Id, string Name, DateTimeOffset CreatedAt, string Secret);
 public sealed record PushSubscription(string Endpoint, string P256dh, string Auth, DateTimeOffset UpdatedAt);
 
 public sealed class Reminder

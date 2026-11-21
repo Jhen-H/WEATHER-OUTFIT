@@ -2,6 +2,8 @@ using WeatherOutfit.Api.Models;
 using WeatherOutfit.Api.Services;
 using WeatherOutfit.Api.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.AspNetCore.RateLimiting;
+using System.Threading.RateLimiting;
 using WebPush;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -25,15 +27,34 @@ if (string.IsNullOrWhiteSpace(connectionString))
 builder.Services.AddDbContext<WeatherOutfitDbContext>(options => options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
 builder.Services.AddScoped<ReminderStore>();
 builder.Services.AddHttpClient<PushSender>();
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.AddPolicy("reminder-write", httpContext => RateLimitPartition.GetFixedWindowLimiter(
+        partitionKey: httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown",
+        factory: _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0,
+            AutoReplenishment = true,
+        }));
+});
 
 var app = builder.Build();
 app.UseCors(frontendPolicy);
+app.UseRateLimiter();
 
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<WeatherOutfitDbContext>();
     await db.Database.EnsureCreatedAsync();
     await db.Database.ExecuteSqlRawAsync("""
+        IF COL_LENGTH('dbo.Devices', 'SecretHash') IS NULL
+        BEGIN
+            ALTER TABLE dbo.Devices ADD SecretHash nvarchar(128) NULL;
+        END
+
         IF COL_LENGTH('dbo.Reminders', 'CityName') IS NULL
         BEGIN
             ALTER TABLE dbo.Reminders ADD CityName nvarchar(50) NOT NULL CONSTRAINT DF_Reminders_CityName DEFAULT N'臺中市';
@@ -73,30 +94,42 @@ app.MapPost("/api/devices", async (RegisterDeviceRequest request, ReminderStore 
 {
     var device = await store.RegisterDevice(request.DeviceName);
     return Results.Created($"/api/devices/{device.Id}", device);
-});
+}).RequireRateLimiting("reminder-write");
 app.MapPut("/api/reminders/{deviceId:guid}", async (Guid deviceId, UpdateReminderRequest request, ReminderStore store) =>
 {
+    if (!await store.IsDeviceAuthorized(deviceId, request.DeviceSecret)) return Results.Unauthorized();
     if (!TimeOnly.TryParse(request.Time, out var time)) return Results.BadRequest(new { message = "提醒時間需使用 HH:mm 格式。" });
     var reminder = await store.SaveReminder(deviceId, request.Enabled, time, request.TimeZoneId, request.CityName, request.Latitude, request.Longitude);
     return reminder is null ? Results.NotFound(new { message = "找不到此裝置，請先註冊裝置。" }) : Results.Ok(reminder);
-});
+}).RequireRateLimiting("reminder-write");
 app.MapPost("/api/push-subscriptions", async (SavePushSubscriptionRequest request, ReminderStore store) =>
 {
-    if (!Uri.TryCreate(request.Endpoint, UriKind.Absolute, out _)) return Results.BadRequest(new { message = "Push endpoint 格式不正確。" });
+    if (!await store.IsDeviceAuthorized(request.DeviceId, request.DeviceSecret)) return Results.Unauthorized();
+    if (!IsAllowedPushEndpoint(request.Endpoint)) return Results.BadRequest(new { message = "Push endpoint 格式不正確或不受支援。" });
     var subscription = await store.SaveSubscription(request);
     return subscription is null ? Results.NotFound(new { message = "找不到此裝置，請先註冊裝置。" }) : Results.Ok(subscription);
-});
-app.MapGet("/api/reminders/{deviceId:guid}", async (Guid deviceId, ReminderStore store) =>
+}).RequireRateLimiting("reminder-write");
+app.MapGet("/api/reminders/{deviceId:guid}", async (Guid deviceId, string deviceSecret, ReminderStore store) =>
 {
+    if (!await store.IsDeviceAuthorized(deviceId, deviceSecret)) return Results.Unauthorized();
     var reminder = await store.GetReminder(deviceId);
     return reminder is null ? Results.NotFound(new { message = "尚未設定提醒。" }) : Results.Ok(reminder);
 });
-app.MapPost("/api/reminders/{deviceId:guid}/test", async (Guid deviceId, ReminderStore store, PushSender sender) =>
+app.MapPost("/api/reminders/{deviceId:guid}/test", async (Guid deviceId, DeviceSecretRequest request, ReminderStore store, PushSender sender) =>
 {
+    if (!await store.IsDeviceAuthorized(deviceId, request.DeviceSecret)) return Results.Unauthorized();
     var reminder = await store.GetReminder(deviceId);
     if (reminder is null || reminder.Subscription is null) return Results.BadRequest(new { message = "尚未儲存 Push 訂閱資料。" });
     await sender.SendAsync(reminder);
     return Results.Accepted($"/api/reminders/{deviceId}", new { message = "測試推播已送出。" });
-});
+}).RequireRateLimiting("reminder-write");
 
 app.Run();
+
+static bool IsAllowedPushEndpoint(string endpoint)
+{
+    if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return false;
+    var host = uri.Host.ToLowerInvariant();
+    return host is "fcm.googleapis.com" or "updates.push.services.mozilla.com" or "web.push.apple.com" or "wns2.notify.windows.com"
+        || host.EndsWith(".push.apple.com", StringComparison.Ordinal);
+}

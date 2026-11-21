@@ -11,6 +11,7 @@ public sealed class WeatherOutfitDbContext(DbContextOptions<WeatherOutfitDbConte
     {
         modelBuilder.Entity<DeviceEntity>().HasKey(device => device.Id);
         modelBuilder.Entity<DeviceEntity>().Property(device => device.Name).HasMaxLength(100);
+        modelBuilder.Entity<DeviceEntity>().Property(device => device.SecretHash).HasMaxLength(128);
         modelBuilder.Entity<DeviceEntity>().HasOne(device => device.Reminder).WithOne(reminder => reminder.Device).HasForeignKey<ReminderEntity>(reminder => reminder.DeviceId);
         modelBuilder.Entity<ReminderEntity>().HasKey(reminder => reminder.DeviceId);
         modelBuilder.Entity<ReminderEntity>().Property(reminder => reminder.TimeZoneId).HasMaxLength(100);
@@ -23,6 +24,7 @@ public sealed class DeviceEntity
 {
     public Guid Id { get; set; }
     public string Name { get; set; } = "未命名裝置";
+    public string? SecretHash { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
     public ReminderEntity? Reminder { get; set; }
 }
