@@ -16,6 +16,9 @@ if (args.Contains("--generate-vapid-keys", StringComparer.OrdinalIgnoreCase))
     return;
 }
 
+// 每日提醒固定於台灣時間 07:30，資料庫儲存相同時間以避免排程與資料不一致。
+var dailyReminderTime = new TimeOnly(7, 30);
+
 const string frontendPolicy = "WeatherOutfitFrontend";
 builder.Services.AddCors(options => options.AddPolicy(frontendPolicy, policy => policy
     .WithOrigins("http://127.0.0.1:5173", "http://localhost:5173", "https://jhen-h.github.io")
@@ -62,6 +65,10 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE dbo.Reminders ADD Longitude float NOT NULL CONSTRAINT DF_Reminders_Longitude DEFAULT 120.6736;
         END
         """);
+    // 修正舊版前端可能存入的自訂時間；目前排程固定於 07:30。
+    await db.Database.ExecuteSqlRawAsync("""
+        UPDATE dbo.Reminders SET [Time] = '07:30' WHERE [Time] <> '07:30';
+        """);
     await db.Database.ExecuteSqlRawAsync("""
         IF OBJECT_ID(N'dbo.NotificationLogs', N'U') IS NULL
         BEGIN
@@ -98,8 +105,8 @@ app.MapPost("/api/devices", async (RegisterDeviceRequest request, ReminderStore 
 app.MapPut("/api/reminders/{deviceId:guid}", async (Guid deviceId, UpdateReminderRequest request, ReminderStore store) =>
 {
     if (!await store.IsDeviceAuthorized(deviceId, request.DeviceSecret)) return Results.Unauthorized();
-    if (!TimeOnly.TryParse(request.Time, out var time)) return Results.BadRequest(new { message = "提醒時間需使用 HH:mm 格式。" });
-    var reminder = await store.SaveReminder(deviceId, request.Enabled, time, request.TimeZoneId, request.CityName, request.Latitude, request.Longitude);
+    if (!TimeOnly.TryParse(request.Time, out _)) return Results.BadRequest(new { message = "提醒時間需使用 HH:mm 格式。" });
+    var reminder = await store.SaveReminder(deviceId, request.Enabled, dailyReminderTime, request.TimeZoneId, request.CityName, request.Latitude, request.Longitude);
     return reminder is null ? Results.NotFound(new { message = "找不到此裝置，請先註冊裝置。" }) : Results.Ok(reminder);
 }).RequireRateLimiting("reminder-write");
 app.MapPost("/api/push-subscriptions", async (SavePushSubscriptionRequest request, ReminderStore store) =>
@@ -130,6 +137,7 @@ static bool IsAllowedPushEndpoint(string endpoint)
 {
     if (!Uri.TryCreate(endpoint, UriKind.Absolute, out var uri) || uri.Scheme != Uri.UriSchemeHttps) return false;
     var host = uri.Host.ToLowerInvariant();
-    return host is "fcm.googleapis.com" or "updates.push.services.mozilla.com" or "web.push.apple.com" or "wns2.notify.windows.com"
-        || host.EndsWith(".push.apple.com", StringComparison.Ordinal);
+    return host is "fcm.googleapis.com" or "updates.push.services.mozilla.com" or "web.push.apple.com"
+        || host.EndsWith(".push.apple.com", StringComparison.Ordinal)
+        || host.EndsWith(".notify.windows.com", StringComparison.Ordinal);
 }

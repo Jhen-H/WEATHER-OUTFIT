@@ -63,6 +63,9 @@ export const presentationOptions: { id: PresentationId; label: string; icon: str
   { id: "men", label: "男裝呈現", icon: "♙" },
 ];
 
+// 每日提醒固定在台灣時間 07:30，與 Azure Function 的排程一致。
+export const DAILY_REMINDER_TIME = "07:30";
+
 export type SavedOutfit = { id: string; title: string; image: string; items: string[]; savedAt: string };
 export type Preferences = {
   clothingIds: string[];
@@ -73,7 +76,7 @@ export type Preferences = {
   favorites: SavedOutfit[];
 };
 
-export const defaultPreferences: Preferences = { clothingIds: [], colorIds: [], presentation: "any", defaultOccasion: "casual", reminder: { enabled: false, time: "07:30" }, favorites: [] };
+export const defaultPreferences: Preferences = { clothingIds: [], colorIds: [], presentation: "any", defaultOccasion: "casual", reminder: { enabled: false, time: DAILY_REMINDER_TIME }, favorites: [] };
 const storageKey = "weather-outfit-preferences";
 
 export function loadPreferences(): Preferences {
@@ -86,7 +89,7 @@ export function loadPreferences(): Preferences {
       ...saved,
       // 舊版若曾選到「中性呈現」，新版回到不限，避免沒有對應選項時卡住。
       presentation: (saved.presentation as string) === "neutral" ? "any" : saved.presentation,
-      reminder: { ...defaultPreferences.reminder, ...saved.reminder },
+      reminder: { ...defaultPreferences.reminder, ...saved.reminder, time: DAILY_REMINDER_TIME },
       favorites: saved.favorites.map((favorite) => ({ ...favorite, id: favorite.id ?? favorite.image })),
     };
   } catch {

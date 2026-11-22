@@ -1,5 +1,5 @@
 // 變更安全性或 API 契約時必須遞增版本，避免已安裝的 PWA 持續執行舊版 JS。
-const CACHE_NAME = "weather-outfit-v3";
+const CACHE_NAME = "weather-outfit-v4";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./offline.html"];
 
 self.addEventListener("install", (event) => {
@@ -16,6 +16,9 @@ self.addEventListener("activate", (event) => {
 self.addEventListener("fetch", (event) => {
   if (event.request.method !== "GET") return;
 
+  // 不攔截外部的天氣/API 請求，避免資料被快取成舊天氣。
+  if (new URL(event.request.url).origin !== self.location.origin) return;
+
   if (event.request.mode === "navigate") {
     event.respondWith(
       fetch(event.request)
@@ -31,8 +34,9 @@ self.addEventListener("fetch", (event) => {
 
   event.respondWith(
     caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-      if (new URL(event.request.url).origin === self.location.origin) {
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, response.clone()));
+      if (response.ok) {
+        const copy = response.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
       }
       return response;
     })),
@@ -51,12 +55,17 @@ self.addEventListener("message", (event) => {
 });
 
 self.addEventListener("push", (event) => {
-  const payload = event.data?.json?.() ?? {};
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch {
+    payload = { body: event.data?.text?.() || "" };
+  }
   event.waitUntil(self.registration.showNotification(payload.title || "Weather Outfit", {
     body: payload.body || "今日穿搭建議已準備好。",
     icon: "./icon.svg",
     badge: "./icon.svg",
-    tag: `weather-outfit-${Date.now()}`,
+    tag: "weather-outfit-daily",
     renotify: true,
     data: { url: payload.url || "./" },
   }));
@@ -64,5 +73,11 @@ self.addEventListener("push", (event) => {
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  event.waitUntil(clients.openWindow(event.notification.data?.url || "./"));
+  const target = new URL(event.notification.data?.url || "./", self.location.href).href;
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const existing = windows.find((client) => client.url.startsWith(self.registration.scope));
+      return existing ? existing.focus() : clients.openWindow(target);
+    }),
+  );
 });

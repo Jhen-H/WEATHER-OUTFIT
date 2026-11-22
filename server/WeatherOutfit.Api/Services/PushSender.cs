@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using WebPush;
 using WeatherOutfit.Api.Models;
@@ -17,7 +18,13 @@ public sealed class PushSender(IConfiguration configuration, ILogger<PushSender>
 
         var payload = JsonSerializer.Serialize(new { title = "Weather Outfit｜今日穿搭", body = await GetAdviceAsync(reminder.CityName, reminder.Latitude, reminder.Longitude, cancellationToken), url = "/WEATHER-OUTFIT/" });
         var subscription = new WebPush.PushSubscription(reminder.Subscription.Endpoint, reminder.Subscription.P256dh, reminder.Subscription.Auth);
-        await new WebPushClient().SendNotificationAsync(subscription, payload, new VapidDetails(subject, publicKey, privateKey));
+        var options = new Dictionary<string, object>
+        {
+            ["vapidDetails"] = new VapidDetails(subject, publicKey, privateKey),
+            ["TTL"] = 6 * 60 * 60,
+            ["headers"] = new Dictionary<string, object> { ["Urgency"] = "high" },
+        };
+        await new WebPushClient().SendNotificationAsync(subscription, payload, options);
         logger.LogInformation("Push sent to device {DeviceId}", reminder.DeviceId);
     }
 
@@ -26,8 +33,10 @@ public sealed class PushSender(IConfiguration configuration, ILogger<PushSender>
         try
         {
             // 明確指定台灣「今天」的日期，而非依 API 預設時區或陣列索引猜測，避免通知誤用明天的預報。
-            var taiwanToday = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd");
-            var url = $"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&current=weather_code&timezone=Asia%2FTaipei&start_date={taiwanToday}&end_date={taiwanToday}";
+            var taiwanToday = DateTimeOffset.UtcNow.ToOffset(TimeSpan.FromHours(8)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+            var lat = latitude.ToString(CultureInfo.InvariantCulture);
+            var lon = longitude.ToString(CultureInfo.InvariantCulture);
+            var url = $"https://api.open-meteo.com/v1/forecast?latitude={lat}&longitude={lon}&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max&current=weather_code&timezone=Asia%2FTaipei&start_date={taiwanToday}&end_date={taiwanToday}";
             using var response = await http.GetAsync(url, cancellationToken);
             response.EnsureSuccessStatusCode();
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
