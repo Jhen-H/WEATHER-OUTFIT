@@ -1,6 +1,6 @@
 // 變更安全性或 API 契約時必須遞增版本，避免已安裝的 PWA 持續執行舊版 JS。
-// v5：圖片改為 WebP，換版本讓手機清掉舊的 PNG 快取（可省下數十 MB 空間）。
-const CACHE_NAME = "weather-outfit-v5";
+// v6：清掉 v5 時期快取的舊百褶裙圖示，並改用「先顯示快取、背景更新」策略。
+const CACHE_NAME = "weather-outfit-v6";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./offline.html"];
 
 self.addEventListener("install", (event) => {
@@ -33,14 +33,22 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // 先回傳快取讓畫面立刻出現，同時在背景下載最新版本存回快取。
+  // 這樣替換同名圖片或檔案後，最晚下次開啟就會更新，不會一直卡在舊版。
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request).then((response) => {
-      if (response.ok) {
-        const copy = response.clone();
-        caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+    caches.open(CACHE_NAME).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      // no-cache：略過瀏覽器的 HTTP 快取，向伺服器確認是否有新版本（沒變時只回 304，很省流量）。
+      const network = fetch(event.request, { cache: "no-cache" }).then((response) => {
+        if (response.ok) cache.put(event.request, response.clone());
+        return response;
+      });
+      if (cached) {
+        event.waitUntil(network.catch(() => undefined));
+        return cached;
       }
-      return response;
-    })),
+      return network;
+    }),
   );
 });
 
