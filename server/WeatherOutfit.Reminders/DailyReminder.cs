@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Azure.Functions.Worker;
 using Microsoft.Data.SqlClient;
 using Microsoft.Extensions.Configuration;
@@ -19,6 +21,21 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
     // 23:30 UTC = 台灣 07:30；23:45 UTC 只補發第一次失敗的裝置。
     public async Task Run([TimerTrigger("0 30,45 23 * * *")] TimerInfo timer)
     {
+        await SendDailyRemindersAsync(timer.IsPastDue ? "timer (past due)" : "timer");
+    }
+
+    // 手動觸發：與每日排程共用同一段發送邏輯，以 Function 金鑰保護（/api/RunDailyReminderNow）。
+    // 管理端點被隔離時，Portal 無法測試 Timer 函式；HTTP 函式不受影響。
+    // 每台裝置每天最多成功送出一次，所以重複呼叫不會重複推播。
+    [Function("RunDailyReminderNow")]
+    public async Task<IActionResult> RunNow([HttpTrigger(AuthorizationLevel.Function, "post")] HttpRequest request)
+    {
+        var result = await SendDailyRemindersAsync("manual");
+        return new OkObjectResult(result);
+    }
+
+    private async Task<ReminderRunResult> SendDailyRemindersAsync(string trigger)
+    {
         var connectionString = BuildConnectionString(config.GetConnectionString("WeatherOutfit") ?? config["ConnectionStrings:WeatherOutfit"]);
         var subject = config["Vapid:Subject"];
         var publicKey = config["Vapid:PublicKey"];
@@ -28,7 +45,7 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
 
         var taiwanNow = DateTimeOffset.UtcNow.ToOffset(TaiwanOffset);
         var scheduledDate = DateOnly.FromDateTime(taiwanNow.DateTime);
-        logger.LogInformation("Daily reminder run at {TaiwanTime:yyyy-MM-dd HH:mm} Taiwan time (past due: {IsPastDue}).", taiwanNow, timer.IsPastDue);
+        logger.LogInformation("Daily reminder ({Trigger}) run at {TaiwanTime:yyyy-MM-dd HH:mm} Taiwan time.", trigger, taiwanNow);
 
         var reminders = await LoadRemindersAsync(connectionString);
         logger.LogInformation("{ReminderCount} enabled device(s) with a push subscription.", reminders.Count);
@@ -37,6 +54,7 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
         var client = new WebPushClient();
         var vapid = new VapidDetails(subject, publicKey, privateKey);
         var adviceByCity = new Dictionary<string, string>();
+        var failures = new List<string>();
         int sent = 0, skipped = 0, failed = 0;
 
         foreach (var reminder in reminders)
@@ -69,21 +87,28 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
             catch (WebPushException error)
             {
                 failed++;
+                var reason = $"{(int)error.StatusCode} {error.Message}";
+                failures.Add($"{ShortId(reminder.DeviceId)}: {reason}");
                 logger.LogWarning(error, "Push service returned {StatusCode} for {DeviceId}", (int)error.StatusCode, reminder.DeviceId);
-                await CompleteNotificationAsync(connectionString, reminder.DeviceId, scheduledDate, "Failed", $"{(int)error.StatusCode} {error.Message}");
+                await CompleteNotificationAsync(connectionString, reminder.DeviceId, scheduledDate, "Failed", reason);
                 if (error.StatusCode is HttpStatusCode.NotFound or HttpStatusCode.Gone)
                     await ClearInvalidSubscriptionAsync(connectionString, reminder.DeviceId);
             }
             catch (Exception error)
             {
                 failed++;
+                failures.Add($"{ShortId(reminder.DeviceId)}: {error.Message}");
                 logger.LogError(error, "Unexpected daily reminder failure for {DeviceId}", reminder.DeviceId);
                 await CompleteNotificationAsync(connectionString, reminder.DeviceId, scheduledDate, "Failed", error.Message);
             }
         }
 
-        logger.LogInformation("Daily reminder finished: {Sent} sent, {Skipped} already handled today, {Failed} failed.", sent, skipped, failed);
+        logger.LogInformation("Daily reminder ({Trigger}) finished: {Sent} sent, {Skipped} already handled today, {Failed} failed.", trigger, sent, skipped, failed);
+        return new ReminderRunResult(scheduledDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture), trigger, reminders.Count, sent, skipped, failed, failures);
     }
+
+    // 回應只顯示裝置 ID 前 8 碼，足以對照資料庫，又不必回傳完整識別碼。
+    private static string ShortId(Guid deviceId) => deviceId.ToString()[..8];
 
     private static string BuildConnectionString(string? raw)
     {
@@ -226,6 +251,8 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
         }
         return fallback;
     }
+
+    public sealed record ReminderRunResult(string TaiwanDate, string Trigger, int Eligible, int Sent, int SkippedAlreadyHandled, int Failed, List<string> Failures);
 
     private sealed record PushTarget(Guid DeviceId, string Endpoint, string P256dh, string Auth, string CityName, double Latitude, double Longitude);
 }
