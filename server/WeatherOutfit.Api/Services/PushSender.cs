@@ -43,13 +43,16 @@ public sealed class PushSender(ILogger<PushSender> logger, HttpClient http)
         }
     }
 
+    // 依序判斷，先符合的規則優先。溫差要排在「保暖」之前：
+    // 例如 16–27°C 的日子，白天其實偏暖，比起「保暖」更需要「分層、帶薄外套」。
     private static string OutfitAdvice(double low, double high, int rainChance)
     {
         if (rainChance >= 50) return "建議帶傘、穿防潑水外套與耐濕鞋";
         if (high >= 30 && high - low >= 8) return "白天穿輕薄透氣上衣，早晚帶薄外套";
         if (high >= 30) return "建議短袖與透氣材質，記得防曬";
-        if (low <= 18) return "建議長袖或外套保暖";
         if (high - low >= 8) return "日夜溫差大，建議分層並帶薄外套";
+        if (high <= 20) return "建議長袖或外套保暖";
+        if (low <= 18) return "早晚偏涼，建議帶件薄外套";
         return "建議輕薄上衣搭配長褲或裙裝";
     }
 
