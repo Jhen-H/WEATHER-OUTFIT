@@ -7,6 +7,16 @@
 - 專案文件（Notion）：https://www.notion.so/App-2a255e5883f780209ba5ecb150b59a33
 - 設計原型（Figma）：https://www.figma.com/design/HymU0ZgztmfSzseY8shUHB/Weather-Outfit-App?node-id=12-73
 
+## 畫面預覽
+
+| 首頁與今日天氣 | 依天氣推薦穿搭 | 偏好設定 |
+| :---: | :---: | :---: |
+| <img src="docs/screenshots/home.jpg" alt="首頁：臺中市晴天 26 度、高低溫、降雨機率與 UV，以及場合選擇" width="240"> | <img src="docs/screenshots/outfit.jpg" alt="穿搭推薦：輕風衣戶外搭配，附推薦原因與日夜溫差提示" width="240"> | <img src="docs/screenshots/preferences.jpg" alt="偏好設定：穿搭呈現與常穿衣物選擇" width="240"> |
+
+每天早上 07:30 收到的推播通知：
+
+<img src="docs/screenshots/notification.jpg" alt="iPhone 通知：臺中市目前晴天，今天預報晴天，降雨 14%，16 到 27 度，日夜溫差大，建議分層並帶薄外套" width="420">
+
 ## 作品亮點
 
 - 全台 22 個縣市、目前位置、今天／明天／未來 7 天氣象資訊。
@@ -43,7 +53,7 @@ flowchart LR
 | React + TypeScript + Vite | 前端元件、互動、型別檢查與靜態建置。 |
 | CSS | 手機優先的響應式介面與依天氣改變的背景。 |
 | Open-Meteo API | 取得氣溫、降雨機率、UV、風速與天氣狀態。 |
-| Web Manifest + Service Worker | PWA 安裝、基本離線畫面與接收 Push。 |
+| Web Manifest + Service Worker | PWA 安裝、基本離線畫面與接收 Push；圖片先顯示快取並在背景更新。 |
 | ASP.NET Core Web API (.NET 10) | 裝置註冊、提醒設定、VAPID 公鑰與通知文案。 |
 | Azure SQL Database | 儲存裝置、Push 訂閱與提醒城市／時間。 |
 | Azure Functions Timer Trigger | 每天台灣時間 07:30 讀取提醒資料並送出 Web Push，07:45 補發失敗的裝置。 |
