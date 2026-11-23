@@ -1,33 +1,10 @@
 using System.Globalization;
 using System.Text.Json;
-using WebPush;
-using WeatherOutfit.Api.Models;
 
 namespace WeatherOutfit.Api.Services;
 
-public sealed class PushSender(IConfiguration configuration, ILogger<PushSender> logger, HttpClient http)
+public sealed class PushSender(ILogger<PushSender> logger, HttpClient http)
 {
-    public async Task SendAsync(Reminder reminder, CancellationToken cancellationToken = default)
-    {
-        if (reminder.Subscription is null) return;
-        var subject = configuration["Vapid:Subject"];
-        var publicKey = configuration["Vapid:PublicKey"];
-        var privateKey = configuration["Vapid:PrivateKey"];
-        if (string.IsNullOrWhiteSpace(subject) || string.IsNullOrWhiteSpace(publicKey) || string.IsNullOrWhiteSpace(privateKey))
-            throw new InvalidOperationException("尚未設定 VAPID 金鑰。請在 User Secrets 或雲端環境變數設定 Vapid:Subject、PublicKey、PrivateKey。");
-
-        var payload = JsonSerializer.Serialize(new { title = "Weather Outfit｜今日穿搭", body = await GetAdviceAsync(reminder.CityName, reminder.Latitude, reminder.Longitude, cancellationToken), url = "/WEATHER-OUTFIT/" });
-        var subscription = new WebPush.PushSubscription(reminder.Subscription.Endpoint, reminder.Subscription.P256dh, reminder.Subscription.Auth);
-        var options = new Dictionary<string, object>
-        {
-            ["vapidDetails"] = new VapidDetails(subject, publicKey, privateKey),
-            ["TTL"] = 6 * 60 * 60,
-            ["headers"] = new Dictionary<string, object> { ["Urgency"] = "high" },
-        };
-        await new WebPushClient().SendNotificationAsync(subscription, payload, options);
-        logger.LogInformation("Push sent to device {DeviceId}", reminder.DeviceId);
-    }
-
     public async Task<string> GetAdviceAsync(string cityName, double latitude, double longitude, CancellationToken cancellationToken = default)
     {
         try

@@ -44,17 +44,6 @@ self.addEventListener("fetch", (event) => {
   );
 });
 
-self.addEventListener("message", (event) => {
-  if (event.data?.type !== "SHOW_TEST_NOTIFICATION") return;
-  event.waitUntil(self.registration.showNotification("Weather Outfit", {
-    body: "測試成功：每日穿搭提醒已可顯示。",
-    icon: "./icon.svg",
-    badge: "./icon.svg",
-    tag: "weather-outfit-test",
-    renotify: true,
-  }));
-});
-
 self.addEventListener("push", (event) => {
   let payload = {};
   try {

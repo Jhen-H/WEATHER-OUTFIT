@@ -122,15 +122,6 @@ app.MapGet("/api/reminders/{deviceId:guid}", async (Guid deviceId, string device
     var reminder = await store.GetReminder(deviceId);
     return reminder is null ? Results.NotFound(new { message = "尚未設定提醒。" }) : Results.Ok(reminder);
 });
-app.MapPost("/api/reminders/{deviceId:guid}/test", async (Guid deviceId, DeviceSecretRequest request, ReminderStore store, PushSender sender) =>
-{
-    if (!await store.IsDeviceAuthorized(deviceId, request.DeviceSecret)) return Results.Unauthorized();
-    var reminder = await store.GetReminder(deviceId);
-    if (reminder is null || reminder.Subscription is null) return Results.BadRequest(new { message = "尚未儲存 Push 訂閱資料。" });
-    await sender.SendAsync(reminder);
-    return Results.Accepted($"/api/reminders/{deviceId}", new { message = "測試推播已送出。" });
-}).RequireRateLimiting("reminder-write");
-
 app.Run();
 
 static bool IsAllowedPushEndpoint(string endpoint)

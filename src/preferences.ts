@@ -134,25 +134,3 @@ export function loadPreferences(): Preferences {
 export function savePreferences(preferences: Preferences) {
   localStorage.setItem(storageKey, JSON.stringify(preferences));
 }
-
-// ---- 備份與換裝置 ----
-// 偏好與收藏只存在這台瀏覽器；匯出成檔案後，可在另一台裝置匯入。
-// 每日提醒綁定的是「這台裝置」的推播訂閱，所以不包含在備份裡，匯入時保留目前裝置的提醒設定。
-const backupFormat = "weather-outfit-backup";
-
-export function createPreferencesBackup(preferences: Preferences, exportedAt = new Date()): string {
-  const { reminder: _deviceOnly, ...portable } = preferences;
-  return JSON.stringify({ format: backupFormat, version: 1, exportedAt: exportedAt.toISOString(), preferences: portable }, null, 2);
-}
-
-export function restorePreferencesBackup(text: string, current: Preferences): Preferences {
-  let data: unknown;
-  try {
-    data = JSON.parse(text);
-  } catch {
-    throw new Error("檔案不是有效的備份格式。");
-  }
-  if (!isRecord(data) || data.format !== backupFormat || !isRecord(data.preferences))
-    throw new Error("這不是 Weather Outfit 的備份檔。");
-  return { ...normalizePreferences(data.preferences), reminder: current.reminder };
-}

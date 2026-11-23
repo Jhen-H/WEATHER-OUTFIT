@@ -53,10 +53,3 @@ export async function savePushReminder(reminder: ReminderInput, city: ReminderCi
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: reminder.enabled, time: reminder.time, deviceSecret: device.secret, timeZoneId: "Asia/Taipei", cityName: city.name, latitude: city.latitude, longitude: city.longitude }),
   }));
 }
-
-export async function sendServerPushTest() {
-  const deviceId = localStorage.getItem(deviceKey);
-  const deviceSecret = localStorage.getItem(deviceSecretKey);
-  if (!deviceId || !deviceSecret) throw new Error("請先啟用每日提醒。");
-  await responseJson(await fetch(`${apiBase}/api/reminders/${deviceId}/test`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ deviceSecret }) }));
-}

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { clothingOptions, colorOptions, createPreferencesBackup, loadPreferences, occasions, presentationOptions, restorePreferencesBackup, savePreferences, type OccasionId, type Preferences } from "./preferences";
+import { clothingOptions, colorOptions, loadPreferences, occasions, presentationOptions, savePreferences, type OccasionId, type Preferences } from "./preferences";
 import { makeOutfits, type Outfit } from "./recommendation";
 import { cities, createFallbackForecast, findNearestCity, formatForecastDay, formatShortDate, getHourlyRainForecast, getWeatherForecast, weatherLabel, type HourlyRain, type Weather } from "./weather";
 import { ClothingIcon } from "./ClothingIcon";
-import { savePushReminder, sendServerPushTest } from "./pushReminder";
+import { savePushReminder } from "./pushReminder";
 
 const initialWeather: Weather = { date: new Date().toISOString().slice(0, 10), temperature: 28, apparentTemperature: 30, high: 32, low: 23, rainChance: 60, uvIndex: 7, windSpeed: 9, weatherCode: 1 };
 type View = "home" | "preferences" | "favorites" | "why";
@@ -129,64 +129,30 @@ function PreferencesView({ city, preferences, setPreferences, toggleValue, setOc
     <section className="settings-card"><h2>喜歡色系</h2><p>可複選，最多 3 種；幫助推薦更接近你的風格。</p><div className="color-grid">{colorOptions.map((item) => <button key={item.id} disabled={!preferences.colorIds.includes(item.id) && preferences.colorIds.length >= 3} className={preferences.colorIds.includes(item.id) ? "color-choice selected" : "color-choice"} onClick={() => toggleValue("colorIds", item.id)}><i style={{ background: item.swatch }} />{item.label}{preferences.colorIds.includes(item.id) && " ✓"}</button>)}</div></section>
     <section className="settings-card"><h2>預設場合</h2><p>打開首頁時，先替你選好這個情境；你仍可在首頁隨時切換。</p><div className="occasion-chips settings-chips">{occasions.map((item) => <button key={item.id} className={preferences.defaultOccasion === item.id ? "occasion-chip active" : "occasion-chip"} onClick={() => { setPreferences((value) => ({ ...value, defaultOccasion: item.id })); setOccasion(item.id); }}>{item.icon} {item.label}</button>)}</div></section>
     <ReminderSettings city={city} reminder={preferences.reminder} onChange={(reminder) => setPreferences((value) => ({ ...value, reminder }))} />
-    <BackupSettings preferences={preferences} onRestore={(restored) => { setPreferences(restored); setOccasion(restored.defaultOccasion); }} />
     <div className="settings-links"><button onClick={onFavorites}>♡ 我的收藏 <span>{preferences.favorites.length}</span></button><button onClick={onWhy}>ⓘ 推薦依據說明</button></div>
   </>;
 }
 
-function BackupSettings({ preferences, onRestore }: { preferences: Preferences; onRestore: (preferences: Preferences) => void }) {
-  const [message, setMessage] = useState("");
-  async function exportBackup() {
-    const file = new File([createPreferencesBackup(preferences)], `weather-outfit-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: "application/json" });
-    // iPhone 主畫面 App 無法直接下載檔案，改用系統分享面板（可存到「檔案」或用 AirDrop 傳到另一台裝置）。
-    if (navigator.canShare?.({ files: [file] })) {
-      try { await navigator.share({ files: [file], title: "Weather Outfit 備份" }); setMessage("已匯出備份。"); }
-      catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) setMessage("匯出失敗，請再試一次。"); }
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    const link = document.createElement("a");
-    link.href = url; link.download = file.name; link.click();
-    // 等瀏覽器開始下載後再釋放暫存網址，立即釋放會讓部分瀏覽器下載失敗。
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setMessage("已下載備份檔。");
-  }
-  async function importBackup(file: File | undefined) {
-    if (!file) return;
-    try {
-      onRestore(restorePreferencesBackup(await file.text(), preferences));
-      setMessage("已匯入偏好與收藏；這台裝置的每日提醒設定保持不變。");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "匯入失敗。");
-    }
-  }
-  return <section className="settings-card"><h2>備份與換裝置</h2><p>偏好與收藏只存在這台裝置。匯出成檔案後，可以在另一台裝置匯入；每日提醒需在每台裝置各自開啟。</p><div className="notification-test"><button type="button" onClick={() => void exportBackup()}>匯出偏好與收藏</button><label className="file-button">匯入備份檔<input type="file" accept="application/json,.json" onChange={(event) => { void importBackup(event.target.files?.[0]); event.target.value = ""; }} /></label><small>{message}</small></div></section>;
-}
-
 function ReminderSettings({ city, reminder, onChange }: { city: { name: string; latitude: number; longitude: number }; reminder: Preferences["reminder"]; onChange: (reminder: Preferences["reminder"]) => void }) {
-  const [testStatus, setTestStatus] = useState("");
+  const [status, setStatus] = useState("");
   async function syncReminder(nextReminder: Preferences["reminder"]) {
+    if (nextReminder.enabled) {
+      if (!window.isSecureContext || !("serviceWorker" in navigator) || !("Notification" in window)) {
+        setStatus("這個瀏覽器無法接收通知。iPhone 請用 Safari 把網站加入主畫面，再從主畫面開啟。");
+        return;
+      }
+      // 必須在點擊後立刻詢問通知權限；若先等網路請求，iPhone 會拒絕跳出詢問視窗。
+      if (await Notification.requestPermission() !== "granted") {
+        setStatus("尚未允許通知。請到系統設定允許 Weather Outfit 傳送通知後再開啟。");
+        return;
+      }
+    }
     onChange(nextReminder);
     if (!window.isSecureContext || !("serviceWorker" in navigator)) return;
-    try { await savePushReminder(nextReminder, city); setTestStatus(nextReminder.enabled ? `已儲存 ${city.name} 的每日提醒並註冊這台裝置。` : "已關閉此裝置的每日提醒。"); }
-    catch (error) { setTestStatus(error instanceof Error ? error.message : "提醒設定暫時無法儲存。"); }
+    try { await savePushReminder(nextReminder, city); setStatus(nextReminder.enabled ? `已開啟：每天 07:30 會收到${city.name}的天氣與穿搭提醒。` : "已關閉這台裝置的每日提醒。"); }
+    catch (error) { setStatus(error instanceof Error ? error.message : "提醒設定暫時無法儲存。"); }
   }
-  async function sendTestNotification() {
-    if (!("Notification" in window)) { setTestStatus("這個瀏覽器沒有提供通知功能；請改用 Safari、Chrome 或 Edge 開啟網站。"); return; }
-    if (!("serviceWorker" in navigator)) { setTestStatus("目前是內嵌瀏覽器，無法測試通知。請改用 Safari、Chrome 或 Edge 直接開啟網站；iPhone 建議先加入主畫面再測試。"); return; }
-    if (!window.isSecureContext) { setTestStatus("通知測試需要 HTTPS 網址或本機 localhost。部署後請再試。 "); return; }
-    const permission = await Notification.requestPermission();
-    if (permission !== "granted") { setTestStatus("尚未取得通知權限；請在瀏覽器設定中允許通知後再試。 "); return; }
-    try { await sendServerPushTest(); setTestStatus("已送出依今日天氣生成的測試推播，請查看系統通知。 "); }
-    catch (error) {
-      const registration = await navigator.serviceWorker.ready;
-      if (registration.active) registration.active.postMessage({ type: "SHOW_TEST_NOTIFICATION" });
-      else await registration.showNotification("Weather Outfit", { body: "本機通知測試成功。", icon: `${import.meta.env.BASE_URL}icon.svg`, tag: "weather-outfit-test" });
-      const reason = error instanceof Error ? error.message : "未知錯誤";
-      setTestStatus(`雲端推播失敗：${reason}；已改用本機通知測試。`);
-    }
-  }
-  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會記住目前的 {city.name}，每天固定於台灣時間 07:30 依當日天氣推送簡短穿搭建議。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `每天 07:30 · ${city.name}` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>每天 07:30（台灣時間）</b></p><div className="notification-test"><button type="button" onClick={() => void sendTestNotification()}>發送測試通知</button><small>{testStatus || "後端部署到 HTTPS 後，可用這裡確認真正的背景推播。"}</small></div></section>;
+  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會記住目前的 {city.name}，每天固定於台灣時間 07:30 依當日天氣推送簡短穿搭建議。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `每天 07:30 · ${city.name}` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>每天 07:30（台灣時間）</b></p>{status && <p className="reminder-status">{status}</p>}</section>;
 }
 
 function PageHeader({ title, subtitle, onBack }: { title: string; subtitle: string; onBack: () => void }) { return <header className="page-header"><button onClick={onBack}>← 回到首頁</button><p className="eyebrow">WEATHER OUTFIT</p><h1>{title}</h1><p>{subtitle}</p></header>; }
