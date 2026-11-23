@@ -16,7 +16,8 @@ export default function App() {
   const [showRainTimeline, setShowRainTimeline] = useState(false);
   const [rainLoading, setRainLoading] = useState(false);
   const [rainError, setRainError] = useState<string | null>(null);
-  const [forecastView, setForecastView] = useState<ForecastView>("today");
+  // 點開晚上 22:00 的「明日」通知時，網址會帶 ?day=tomorrow，直接顯示明天的天氣與穿搭。
+  const [forecastView, setForecastView] = useState<ForecastView>(() => new URLSearchParams(window.location.search).get("day") === "tomorrow" ? "tomorrow" : "today");
   const [status, setStatus] = useState("正在更新天氣資料…");
   const [locationError, setLocationError] = useState<string | null>(null);
   const [outfitIndex, setOutfitIndex] = useState(0);
@@ -35,6 +36,8 @@ export default function App() {
   const weatherInfo = weatherLabel(weather.weatherCode);
   const range = weather.high - weather.low;
 
+  // 讀取通知帶來的 ?day= 後清掉，之後重新整理才會回到「今天」。
+  useEffect(() => { if (window.location.search) window.history.replaceState(null, "", window.location.pathname); }, []);
   useEffect(() => { savePreferences(preferences); }, [preferences]);
   // 使用者切換縣市後，若已開啟提醒便同步這台裝置的提醒城市；不再要求重新關開提醒。
   useEffect(() => {
@@ -149,10 +152,10 @@ function ReminderSettings({ city, reminder, onChange }: { city: { name: string; 
     }
     onChange(nextReminder);
     if (!window.isSecureContext || !("serviceWorker" in navigator)) return;
-    try { await savePushReminder(nextReminder, city); setStatus(nextReminder.enabled ? `已開啟：每天 07:30 會收到${city.name}的天氣與穿搭提醒。` : "已關閉這台裝置的每日提醒。"); }
+    try { await savePushReminder(nextReminder, city); setStatus(nextReminder.enabled ? `已開啟：每天 22:00 會收到${city.name}明天的天氣預報，07:30 收到當天的穿搭提醒。` : "已關閉這台裝置的每日提醒。"); }
     catch (error) { setStatus(error instanceof Error ? error.message : "提醒設定暫時無法儲存。"); }
   }
-  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會記住目前的 {city.name}，每天固定於台灣時間 07:30 依當日天氣推送簡短穿搭建議。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `每天 07:30 · ${city.name}` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>每天 07:30（台灣時間）</b></p>{status && <p className="reminder-status">{status}</p>}</section>;
+  return <section className="settings-card"><h2>每日穿搭提醒</h2><p>啟用後會記住目前的 {city.name}：每天晚上 22:00 推送明天的天氣與準備建議，早上 07:30 推送當天的天氣與穿搭建議。</p><label className="reminder-control"><span><b>啟用每日提醒</b><small>{reminder.enabled ? `每天 22:00、07:30 · ${city.name}` : "尚未啟用"}</small></span><input type="checkbox" checked={reminder.enabled} onChange={(event) => void syncReminder({ ...reminder, enabled: event.target.checked, time: "07:30" })} /></label><p className="reminder-time"><span>提醒時間</span><b>22:00 明日預報 · 07:30 今日穿搭</b></p>{status && <p className="reminder-status">{status}</p>}</section>;
 }
 
 function PageHeader({ title, subtitle, onBack }: { title: string; subtitle: string; onBack: () => void }) { return <header className="page-header"><button onClick={onBack}>← 回到首頁</button><p className="eyebrow">WEATHER OUTFIT</p><h1>{title}</h1><p>{subtitle}</p></header>; }

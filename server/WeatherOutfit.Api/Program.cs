@@ -85,6 +85,20 @@ using (var scope = app.Services.CreateScope())
             );
         END
         """);
+    // 加入晚間「明日」提醒後，發送紀錄改以「裝置＋日期＋種類」判斷是否已送過。
+    // 分成三個批次執行：SQL Server 編譯同一批次時，還看不到同批次才新增的欄位。
+    await db.Database.ExecuteSqlRawAsync("""
+        IF COL_LENGTH('dbo.NotificationLogs', 'Kind') IS NULL
+            ALTER TABLE dbo.NotificationLogs ADD Kind nvarchar(20) NOT NULL CONSTRAINT DF_NotificationLogs_Kind DEFAULT N'morning';
+        """);
+    await db.Database.ExecuteSqlRawAsync("""
+        IF EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'UQ_NotificationLogs_Device_ScheduledDate')
+            ALTER TABLE dbo.NotificationLogs DROP CONSTRAINT UQ_NotificationLogs_Device_ScheduledDate;
+        """);
+    await db.Database.ExecuteSqlRawAsync("""
+        IF NOT EXISTS (SELECT 1 FROM sys.key_constraints WHERE name = N'UQ_NotificationLogs_Device_Date_Kind')
+            ALTER TABLE dbo.NotificationLogs ADD CONSTRAINT UQ_NotificationLogs_Device_Date_Kind UNIQUE (DeviceId, ScheduledDate, Kind);
+        """);
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok", service = "Weather Outfit API" }));
@@ -95,8 +109,9 @@ app.MapGet("/api/push-public-key", (IConfiguration configuration) =>
         ? Results.Problem("VAPID public key has not been configured.", statusCode: StatusCodes.Status503ServiceUnavailable)
         : Results.Ok(new { publicKey });
 });
-app.MapGet("/api/notification-advice", async (string cityName, double latitude, double longitude, PushSender sender) =>
-    Results.Ok(new { body = await sender.GetAdviceAsync(cityName, latitude, longitude) }));
+// day=tomorrow：晚上 22:00 的「明日」通知；省略時為早上的「今日」通知。
+app.MapGet("/api/notification-advice", async (string cityName, double latitude, double longitude, string? day, PushSender sender) =>
+    Results.Ok(new { body = await sender.GetAdviceAsync(cityName, latitude, longitude, string.Equals(day, "tomorrow", StringComparison.OrdinalIgnoreCase)) }));
 app.MapPost("/api/devices", async (RegisterDeviceRequest request, ReminderStore store) =>
 {
     var device = await store.RegisterDevice(request.DeviceName);

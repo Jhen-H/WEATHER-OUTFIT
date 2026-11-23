@@ -1,6 +1,6 @@
 # Weather Outfit｜每日天氣穿搭提醒
 
-手機優先、也支援桌機瀏覽的 PWA。使用者選擇台灣縣市或目前位置、場合與個人偏好後，網站會依當日天氣提供可解釋的穿搭推薦；啟用提醒後，每天早上會收到一則簡短的天氣與穿搭通知。
+手機優先、也支援桌機瀏覽的 PWA。使用者選擇台灣縣市或目前位置、場合與個人偏好後，網站會依當日天氣提供可解釋的穿搭推薦；啟用提醒後，每天晚上 22:00 會收到明天的天氣與準備建議，早上 07:30 再收到當天的天氣與穿搭通知。
 
 - 網站 Demo：https://jhen-h.github.io/WEATHER-OUTFIT/
 - 原始碼：https://github.com/Jhen-H/WEATHER-OUTFIT
@@ -13,7 +13,7 @@
 | :---: | :---: | :---: |
 | <img src="docs/screenshots/home.jpg" alt="首頁：臺中市晴天 26 度、高低溫、降雨機率與 UV，以及場合選擇" width="240"> | <img src="docs/screenshots/outfit.jpg" alt="穿搭推薦：輕風衣戶外搭配，附推薦原因與日夜溫差提示" width="240"> | <img src="docs/screenshots/preferences.jpg" alt="偏好設定：穿搭呈現與常穿衣物選擇" width="240"> |
 
-每天早上 07:30 收到的推播通知：
+早上 07:30 收到的當日推播通知（晚上 22:00 另有一則明日預報）：
 
 <img src="docs/screenshots/notification.jpg" alt="iPhone 通知：臺中市目前晴天，今天預報晴天，降雨 14%，16 到 27 度，日夜溫差大，建議分層並帶薄外套" width="420">
 
@@ -37,7 +37,7 @@ flowchart LR
   U -->|HTTPS API| A[ASP.NET Core Web API]
   A --> S[(Azure SQL Database)]
   A -->|取得通知天氣摘要| W
-  F[Azure Function Timer<br/>台灣 07:30 發送、07:45 補發] -->|讀取提醒與通知紀錄| S
+  F[Azure Function Timer<br/>台灣 22:00 明日預報、07:30 今日穿搭] -->|讀取提醒與通知紀錄| S
   F -->|取得通知文案| A
   F --> P[Web Push / VAPID]
   P --> U
@@ -56,7 +56,7 @@ flowchart LR
 | Web Manifest + Service Worker | PWA 安裝、基本離線畫面與接收 Push；圖片先顯示快取並在背景更新。 |
 | ASP.NET Core Web API (.NET 10) | 裝置註冊、提醒設定、VAPID 公鑰與通知文案。 |
 | Azure SQL Database | 儲存裝置、Push 訂閱與提醒城市／時間。 |
-| Azure Functions Timer Trigger | 每天台灣時間 07:30 讀取提醒資料並送出 Web Push，07:45 補發失敗的裝置。 |
+| Azure Functions Timer Trigger | 每天台灣時間 22:00 推送明日預報、07:30 推送今日穿搭，各在 15 分鐘後補發失敗的裝置。 |
 | Azure App Service | 部署 Web API。 |
 | GitHub Pages + GitHub Actions | 部署前端與自動化部署 API／Function；前端部署前先跑測試。 |
 | Vitest | 推薦規則與舊資料轉換的單元測試。 |
@@ -74,15 +74,17 @@ flowchart LR
 
 1. 使用者在偏好頁啟用每日提醒；App 先詢問通知權限，再由瀏覽器建立 Push 訂閱。
 2. 前端把裝置與目前選擇的城市傳到 API，API 寫入 Azure SQL。
-3. Azure Function 每天 **台灣時間 07:30** 執行（固定使用 UTC 23:30，避免雲端時區設定造成偏差），07:45 再執行一次，只補發第一次失敗的裝置。
+3. Azure Function 每天執行兩次（固定使用 UTC，避免雲端時區設定造成偏差），各在 15 分鐘後再執行一次，只補發第一次失敗的裝置：
+   - **晚上 22:00**（UTC 14:00）：明天的預報與「建議準備」的衣物，點開通知會直接顯示 App 的「明天」分頁。
+   - **早上 07:30**（UTC 23:30）：今天的即時天氣、全天預報與穿搭建議。
 4. Function 讀取已啟用的裝置，向 API 取得該城市的當日預報摘要（同城市只查一次），再以 VAPID 發出 Web Push。
-5. 每台裝置每天在 `NotificationLogs` 留下一筆紀錄（`Sending`／`Sent`／`Failed`），以「裝置＋日期」唯一鍵確保不會重複推播；SQL 冷啟動與 API 冷啟動都有重試。
+5. 每台裝置每天在 `NotificationLogs` 留下一筆紀錄（`Sending`／`Sent`／`Failed`），以「裝置＋預報日期＋種類（morning／evening）」唯一鍵確保不會重複推播；SQL 冷啟動與 API 冷啟動都有重試。
 
-需要立即驗證時，可呼叫受 Function 金鑰保護的 `POST /api/RunDailyReminderNow`。它與排程共用同一段發送邏輯，並回傳「符合條件、已發送、已處理、失敗」的台數與失敗原因；同一天重複呼叫不會重複推播。
+需要立即驗證時，可呼叫受 Function 金鑰保護的 `POST /api/RunDailyReminderNow`。它與排程共用同一段發送邏輯，並回傳「符合條件、已發送、已處理、失敗」的台數與失敗原因；同一天重複呼叫不會重複推播。加上 `?kind=evening` 可手動發送晚間的明日預報。
 
 通知中的「目前晴天；今天預報可能有雨」並不衝突：前半段是即時天氣，後半段是全天的最高降雨機率預報。
 
-> 目前提醒時間固定為每天 07:30（台灣時間）。資料庫的時間欄位是日後支援自訂提醒時間的預留設計，現階段不提供其他時間。
+> 目前提醒時間固定為每天 22:00 與 07:30（台灣時間），由同一個「每日提醒」開關控制。資料庫的時間欄位是日後支援自訂提醒時間的預留設計。
 
 ## 本機啟動
 
@@ -133,7 +135,7 @@ dotnet run --project server/WeatherOutfit.Api --urls http://127.0.0.1:5099
 | --- | --- |
 | `Devices` | 裝置識別碼、簡短裝置名稱、建立時間。 |
 | `Reminders` | 是否啟用、固定 07:30、縣市、縣市座標與 Push 訂閱資訊。 |
-| `NotificationLogs` | 每日發送狀態；以「裝置＋日期」唯一鍵避免重複提醒。 |
+| `NotificationLogs` | 每次發送的狀態；以「裝置＋預報日期＋種類」唯一鍵避免重複提醒。 |
 
 提醒設定 API 會對每台裝置建立一次性 `deviceSecret`，前端只保存在該裝置，伺服器僅保存其雜湊。更新提醒與寫入 Push 訂閱都必須驗證此憑證；提醒寫入 API 另有每 IP 每分鐘 10 次的 rate limit，Push endpoint 僅接受受支援服務的 HTTPS 網址。
 

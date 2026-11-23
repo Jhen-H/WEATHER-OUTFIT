@@ -74,8 +74,10 @@ self.addEventListener("notificationclick", (event) => {
   const target = new URL(event.notification.data?.url || "./", self.location.href).href;
   event.waitUntil(
     clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      // App 已經開著時，切到通知指定的頁面（例如晚上通知的「明天」），而不是另開視窗。
       const existing = windows.find((client) => client.url.startsWith(self.registration.scope));
-      return existing ? existing.focus() : clients.openWindow(target);
+      if (!existing) return clients.openWindow(target);
+      return existing.navigate(target).then((client) => (client ?? existing).focus()).catch(() => existing.focus());
     }),
   );
 });

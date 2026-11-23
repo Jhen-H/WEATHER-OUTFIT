@@ -57,3 +57,8 @@ select { border: 1px solid #eedbd8; border-radius: 10px; background: #fff; paddi
 .choice-card.selected { box-shadow: 0 0 0 2px #c9786d, 0 7px 16px #c9786d2b; }
 @media (min-width: 700px) { .selection-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); width: min(100%, 800px); column-gap: 12px; row-gap: 20px; } .choice-group h3 { width: min(100%, 800px); margin-inline: auto; } .choice-card { font-size: .88rem; padding: 7px 5px 9px; } }
 .reminder-status { margin: 14px 0 0; border-top: 1px solid #f0e3df; padding-top: 12px; color: #927b76; font-size: .8rem; line-height: 1.5; }
+/* 收藏卡片：縮圖放大並填滿卡片高度，人物從頭部開始顯示 */
+.favorites-list article { grid-template-columns: 128px 1fr; align-items: stretch; }
+.favorites-list img { display: block; width: 100%; height: 100%; min-height: 170px; object-fit: cover; object-position: center top; }
+.favorites-list div { align-self: center; padding: 16px; }
+@media (min-width: 700px) { .favorites-list { grid-template-columns: repeat(2, minmax(0, 1fr)); } .favorites-list article { grid-template-columns: 150px 1fr; } .favorites-list img { min-height: 200px; } }
