@@ -57,3 +57,7 @@ select { border: 1px solid #eedbd8; border-radius: 10px; background: #fff; paddi
 .choice-card > b { position: absolute; top: 6px; right: 6px; z-index: 1; border-radius: 999px; background: #fff; padding: 1px 4px; font-size: .72rem; line-height: 1; }
 .choice-card.selected { box-shadow: 0 0 0 2px #c9786d, 0 7px 16px #c9786d2b; }
 @media (min-width: 700px) { .selection-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); width: min(100%, 800px); column-gap: 12px; row-gap: 20px; } .choice-group h3 { width: min(100%, 800px); margin-inline: auto; } .choice-card { font-size: .88rem; padding: 7px 5px 9px; } }
+/* 備份匯入：用 label 包住檔案選擇器，外觀與其他按鈕一致 */
+.notification-test .file-button { display: block; border: 1px solid #c9786d; border-radius: 11px; background: #fff0ed; color: #984e46; padding: 10px 12px; font-weight: 800; text-align: center; cursor: pointer; }
+.notification-test .file-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.notification-test .file-button:focus-within { outline: 2px solid #c9786d; outline-offset: 2px; }

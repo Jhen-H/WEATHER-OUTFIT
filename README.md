@@ -15,7 +15,10 @@
 - 可選女裝／男裝呈現、常穿單品、最多三種色系與預設場合。
 - 收藏穿搭、推薦原因、天氣情境背景與完整穿搭照片。
 - 可加入主畫面使用，並支援基本離線 App Shell。
-- 在 iOS 加入主畫面並允許通知後，可接收每日 Web Push 提醒。
+- 在 iOS 加入主畫面並允許通知後，可接收每日 Web Push 提醒；發送失敗會在 15 分鐘後自動補發。
+- 偏好與收藏可匯出成備份檔，在另一台裝置匯入。
+- 穿搭照片使用 WebP 並依顯示尺寸縮圖，素材總大小從約 130 MB 降到約 4 MB。
+- 推薦規則與偏好資料有單元測試，部署前自動執行。
 
 ## 系統架構
 
@@ -25,7 +28,7 @@ flowchart LR
   U -->|HTTPS API| A[ASP.NET Core Web API]
   A --> S[(Azure SQL Database)]
   A -->|取得通知天氣摘要| W
-  F[Azure Function Timer<br/>每日 07:30 台灣時間] -->|讀取提醒與通知紀錄| S
+  F[Azure Function Timer<br/>台灣 07:30 發送、07:45 補發] -->|讀取提醒與通知紀錄| S
   F -->|取得通知文案| A
   F --> P[Web Push / VAPID]
   P --> U
@@ -44,9 +47,10 @@ flowchart LR
 | Web Manifest + Service Worker | PWA 安裝、基本離線畫面與接收 Push。 |
 | ASP.NET Core Web API (.NET 10) | 裝置註冊、提醒設定、VAPID 公鑰與測試推播。 |
 | Azure SQL Database | 儲存裝置、Push 訂閱與提醒城市／時間。 |
-| Azure Functions Timer Trigger | 每天台灣時間 07:30 讀取提醒資料並送出 Web Push。 |
+| Azure Functions Timer Trigger | 每天台灣時間 07:30 讀取提醒資料並送出 Web Push，07:45 補發失敗的裝置。 |
 | Azure App Service | 部署 Web API。 |
-| GitHub Pages + GitHub Actions | 部署前端與自動化部署 API／Function。 |
+| GitHub Pages + GitHub Actions | 部署前端與自動化部署 API／Function；前端部署前先跑測試。 |
+| Vitest | 推薦規則、舊資料轉換與備份匯入的單元測試。 |
 
 ## 推薦規則
 
@@ -61,8 +65,11 @@ flowchart LR
 
 1. 使用者在偏好頁啟用每日提醒，瀏覽器建立 Push 訂閱。
 2. 前端把裝置與目前選擇的城市傳到 API，API 寫入 Azure SQL。
-3. Azure Function 每天 **台灣時間 07:30** 執行（固定使用 UTC 23:30，避免雲端時區設定造成偏差）。
-4. Function 讀取已啟用的裝置，向 API 取得該城市的當日預報摘要，再以 VAPID 發出 Web Push。
+3. Azure Function 每天 **台灣時間 07:30** 執行（固定使用 UTC 23:30，避免雲端時區設定造成偏差），07:45 再執行一次，只補發第一次失敗的裝置。
+4. Function 讀取已啟用的裝置，向 API 取得該城市的當日預報摘要（同城市只查一次），再以 VAPID 發出 Web Push。
+5. 每台裝置每天在 `NotificationLogs` 留下一筆紀錄（`Sending`／`Sent`／`Failed`），以「裝置＋日期」唯一鍵確保不會重複推播；SQL 冷啟動與 API 冷啟動都有重試。
+
+需要立即驗證時，可呼叫受 Function 金鑰保護的 `POST /api/RunDailyReminderNow`。它與排程共用同一段發送邏輯，並回傳「符合條件、已發送、已處理、失敗」的台數與失敗原因；同一天重複呼叫不會重複推播。
 
 通知中的「目前晴天；今天預報可能有雨」並不衝突：前半段是即時天氣，後半段是全天的最高降雨機率預報。
 
@@ -79,10 +86,11 @@ pnpm dev
 
 通常會啟動在 `http://127.0.0.1:5173/`。此網址只存在於本機；對外請使用 GitHub Pages Demo。
 
-正式建置：
+正式建置與測試：
 
 ```bash
 pnpm build
+pnpm test
 ```
 
 ### API 與提醒 Function
@@ -93,6 +101,8 @@ API 與 Function App 都需要在 Azure Application Settings 設定下列機密�
 - `Vapid__Subject`
 - `Vapid__PublicKey`
 - `Vapid__PrivateKey`
+
+Function App 另外需要 `AzureWebJobsStorage`（Azure 儲存體帳戶的連接字串）。Timer 觸發會用它記錄排程狀態；少了它，主機仍會顯示正常運作，但排程永遠不會觸發。
 
 本機啟動 API：
 
@@ -119,6 +129,18 @@ dotnet run --project server/WeatherOutfit.Api --urls http://127.0.0.1:5099
 
 提醒設定 API 會對每台裝置建立一次性 `deviceSecret`，前端只保存在該裝置，伺服器僅保存其雜湊。更新提醒、寫入 Push 訂閱與測試推播都必須驗證此憑證；提醒寫入 API 另有每 IP 每分鐘 10 次的 rate limit，Push endpoint 僅接受受支援服務的 HTTPS 網址。
 
+## 排錯紀錄：每日推播從未送出
+
+部署後早上一直沒有收到通知，排查過程如下：
+
+1. **先看資料，不先猜**：`NotificationLogs` 整張表是空的，而符合條件的裝置有 3 台，代表 Function 從未跑到發送步驟，問題不在推播或手機。
+2. **排除被停用**：Function App 首頁顯示正常運作；手動觸發回 403 是因為管理端點被隔離，不是 App 停止。
+3. **查主機日誌**：Application Insights 反覆出現 `Retrying to start listener for Functions.DailyReminder`，例外訊息是 `Could not create BlobContainerClient for ScheduleMonitor`。
+4. **找到根因**：Function App 缺少 `AzureWebJobsStorage`，Timer 的排程監視器無法建立，監聽器從未啟動。
+5. **修正與驗證**：補上儲存體連接字串並重新啟動，儲存體出現 `azure-webjobs-hosts` 容器；再新增手動觸發端點，立即確認推播送達。
+
+同一輪排查也修正了另一個隱性問題：Function 原本只撈提醒時間「剛好等於 07:30」的裝置，而前端會把舊版留下的其他時間寫回資料庫，讓那些裝置每天都被跳過。現在提醒時間由前端、API 與資料庫三處一致固定為 07:30，Function 改為只依「已啟用且有訂閱」篩選。
+
 ## 專案結構
 
 ```text
@@ -128,7 +150,8 @@ src/
   outfitCatalog.ts                照片的場合、偏好與天氣標籤
   recommendation.ts               穿搭推薦規則與候選排序
   pushReminder.ts                 瀏覽器訂閱與提醒 API 呼叫
-  preferences.ts                  瀏覽器本機偏好與收藏
+  preferences.ts                  瀏覽器本機偏好與收藏、舊資料轉換、備份匯出匯入
+  *.test.ts                       推薦規則與偏好資料的單元測試（Vitest）
   styles.css                      手機優先與桌機響應式樣式
 server/
   WeatherOutfit.Api/              ASP.NET Core API、Azure SQL、Web Push
@@ -141,7 +164,7 @@ public/
 ## 已知限制與取捨
 
 - iOS 必須使用 Safari 將網站「加入主畫面」，並允許通知，才能在背景收到 Web Push。
-- 偏好與收藏目前存在瀏覽器 localStorage，尚未提供帳號與跨裝置同步；提醒訂閱與提醒城市則存於 Azure SQL。
+- 偏好與收藏存在瀏覽器 localStorage；換裝置時可用匯出／匯入搬移，尚未提供帳號自動同步。提醒訂閱與提醒城市則存於 Azure SQL，且每台裝置需各自開啟提醒。
 - 使用「目前位置」時，原始 GPS 座標只在瀏覽器內用來找出最近縣市；送至後端的是該縣市的固定座標，不會儲存使用者的精確位置。
 - 免費或低階 App Service／Azure SQL 可能有冷啟動，UI 會保留載入與失敗提示。
 - 目前照片為示範素材；新增服飾類型時，需要同時建立素材與正確的推薦標籤。
@@ -150,7 +173,7 @@ public/
 
 ## 後續改善方向
 
-1. 推播可靠度：Application Insights 告警與失敗通知的營運監看。
-2. 測試：為 `recommendation.ts` 建立雨天、溫差與偏好降級的單元測試。
+1. 監控：在 Application Insights 設定「排程未執行」告警；目前以 `NotificationLogs` 與手動觸發端點確認。
+2. 跨裝置同步：以帳號系統取代手動匯出／匯入。
 3. UX：加強離線、定位失敗與服務冷啟動的提示。
-4. 跨裝置同步：以帳號系統或匯出／匯入功能逐步導入。
+4. 測試：為 API 與 Function 補上整合測試。

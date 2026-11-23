@@ -79,19 +79,53 @@ export type Preferences = {
 export const defaultPreferences: Preferences = { clothingIds: [], colorIds: [], presentation: "any", defaultOccasion: "casual", reminder: { enabled: false, time: DAILY_REMINDER_TIME }, favorites: [] };
 const storageKey = "weather-outfit-preferences";
 
+const knownClothingIds = new Set(clothingOptions.map((item) => item.id));
+const knownColorIds = new Set(colorOptions.map((item) => item.id));
+const knownOccasionIds = new Set<string>(occasions.map((item) => item.id));
+const knownPresentationIds = new Set<string>(presentationOptions.map((item) => item.id));
+
+const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === "object" && value !== null && !Array.isArray(value);
+const stringList = (value: unknown) => Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
+
+// 圖片已從 PNG 改為 WebP；舊收藏存的是當時的圖片網址，讀取時一併換成新副檔名。
+const migrateImage = (image: string) => image.replace(/\.png$/i, ".webp");
+
+function normalizeFavorites(value: unknown): SavedOutfit[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(isRecord).flatMap((item) => {
+    if (typeof item.title !== "string" || typeof item.image !== "string") return [];
+    const image = migrateImage(item.image);
+    return [{
+      // 舊版收藏以圖片當辨識值；補上 ID 後仍能正常顯示與取消收藏。
+      id: typeof item.id === "string" ? item.id : image,
+      title: item.title,
+      image,
+      items: stringList(item.items),
+      savedAt: typeof item.savedAt === "string" ? item.savedAt : new Date().toISOString(),
+    }];
+  });
+}
+
+// 把任何來源（localStorage、匯入的備份檔）的資料整理成合法的偏好設定，未知或格式錯誤的欄位回到預設值。
+export function normalizePreferences(raw: unknown): Preferences {
+  if (!isRecord(raw)) return defaultPreferences;
+  const presentation = raw.presentation === "neutral" ? "any" : raw.presentation; // 舊版的「中性呈現」已移除。
+  const reminder = isRecord(raw.reminder) ? raw.reminder : {};
+  return {
+    clothingIds: stringList(raw.clothingIds).filter((id) => knownClothingIds.has(id)),
+    colorIds: stringList(raw.colorIds).filter((id) => knownColorIds.has(id)).slice(0, 3),
+    presentation: typeof presentation === "string" && knownPresentationIds.has(presentation) ? presentation as PresentationId : defaultPreferences.presentation,
+    defaultOccasion: typeof raw.defaultOccasion === "string" && knownOccasionIds.has(raw.defaultOccasion) ? raw.defaultOccasion as OccasionId : defaultPreferences.defaultOccasion,
+    // 提醒時間固定為 07:30；舊版留下的其他時間若被保留，每次開 App 都會寫回資料庫。
+    reminder: { enabled: reminder.enabled === true, time: DAILY_REMINDER_TIME },
+    favorites: normalizeFavorites(raw.favorites),
+  };
+}
+
 export function loadPreferences(): Preferences {
   try {
     const value = localStorage.getItem(storageKey);
-    if (!value) return defaultPreferences;
-    const saved = { ...defaultPreferences, ...JSON.parse(value) } as Preferences;
-    // 舊版收藏以圖片當辨識值；補上 ID 後仍能正常顯示與取消收藏。
-    return {
-      ...saved,
-      // 舊版若曾選到「中性呈現」，新版回到不限，避免沒有對應選項時卡住。
-      presentation: (saved.presentation as string) === "neutral" ? "any" : saved.presentation,
-      reminder: { ...defaultPreferences.reminder, ...saved.reminder, time: DAILY_REMINDER_TIME },
-      favorites: saved.favorites.map((favorite) => ({ ...favorite, id: favorite.id ?? favorite.image })),
-    };
+    return value ? normalizePreferences(JSON.parse(value)) : defaultPreferences;
   } catch {
     return defaultPreferences;
   }
@@ -99,4 +133,26 @@ export function loadPreferences(): Preferences {
 
 export function savePreferences(preferences: Preferences) {
   localStorage.setItem(storageKey, JSON.stringify(preferences));
+}
+
+// ---- 備份與換裝置 ----
+// 偏好與收藏只存在這台瀏覽器；匯出成檔案後，可在另一台裝置匯入。
+// 每日提醒綁定的是「這台裝置」的推播訂閱，所以不包含在備份裡，匯入時保留目前裝置的提醒設定。
+const backupFormat = "weather-outfit-backup";
+
+export function createPreferencesBackup(preferences: Preferences, exportedAt = new Date()): string {
+  const { reminder: _deviceOnly, ...portable } = preferences;
+  return JSON.stringify({ format: backupFormat, version: 1, exportedAt: exportedAt.toISOString(), preferences: portable }, null, 2);
+}
+
+export function restorePreferencesBackup(text: string, current: Preferences): Preferences {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error("檔案不是有效的備份格式。");
+  }
+  if (!isRecord(data) || data.format !== backupFormat || !isRecord(data.preferences))
+    throw new Error("這不是 Weather Outfit 的備份檔。");
+  return { ...normalizePreferences(data.preferences), reminder: current.reminder };
 }

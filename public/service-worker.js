@@ -1,5 +1,6 @@
 // 變更安全性或 API 契約時必須遞增版本，避免已安裝的 PWA 持續執行舊版 JS。
-const CACHE_NAME = "weather-outfit-v4";
+// v5：圖片改為 WebP，換版本讓手機清掉舊的 PNG 快取（可省下數十 MB 空間）。
+const CACHE_NAME = "weather-outfit-v5";
 const APP_SHELL = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./offline.html"];
 
 self.addEventListener("install", (event) => {

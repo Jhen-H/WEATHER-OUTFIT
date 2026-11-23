@@ -57,25 +57,6 @@ public sealed class ReminderStore(WeatherOutfitDbContext db)
         return ToModel(item);
     }
 
-    public async Task<IReadOnlyList<Reminder>> GetDueReminders(DateTimeOffset utcNow)
-    {
-        var items = await db.Reminders.Where(item => item.Enabled && item.Endpoint != null && item.P256dh != null && item.Auth != null).ToListAsync();
-        var due = new List<Reminder>();
-        foreach (var item in items)
-        {
-            try
-            {
-                var local = TimeZoneInfo.ConvertTime(utcNow, TimeZoneInfo.FindSystemTimeZoneById(item.TimeZoneId));
-                if (local.Hour != item.Time.Hour || local.Minute != item.Time.Minute || item.LastScheduledAt?.UtcDateTime.Minute == utcNow.UtcDateTime.Minute) continue;
-                item.LastScheduledAt = utcNow;
-                due.Add(ToModel(item));
-            }
-            catch (TimeZoneNotFoundException) { }
-        }
-        if (due.Count > 0) await db.SaveChangesAsync();
-        return due;
-    }
-
     private static Reminder ToModel(ReminderEntity item) => new()
     {
         DeviceId = item.DeviceId, Enabled = item.Enabled, Time = item.Time, TimeZoneId = item.TimeZoneId, CityName = item.CityName, Latitude = item.Latitude, Longitude = item.Longitude, LastScheduledAt = item.LastScheduledAt,

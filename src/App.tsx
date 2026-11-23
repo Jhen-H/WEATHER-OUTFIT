@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { clothingOptions, colorOptions, loadPreferences, occasions, presentationOptions, savePreferences, type OccasionId, type Preferences } from "./preferences";
+import { clothingOptions, colorOptions, createPreferencesBackup, loadPreferences, occasions, presentationOptions, restorePreferencesBackup, savePreferences, type OccasionId, type Preferences } from "./preferences";
 import { makeOutfits, type Outfit } from "./recommendation";
 import { cities, createFallbackForecast, findNearestCity, formatForecastDay, formatShortDate, getHourlyRainForecast, getWeatherForecast, weatherLabel, type HourlyRain, type Weather } from "./weather";
 import { ClothingIcon } from "./ClothingIcon";
@@ -129,8 +129,38 @@ function PreferencesView({ city, preferences, setPreferences, toggleValue, setOc
     <section className="settings-card"><h2>喜歡色系</h2><p>可複選，最多 3 種；幫助推薦更接近你的風格。</p><div className="color-grid">{colorOptions.map((item) => <button key={item.id} disabled={!preferences.colorIds.includes(item.id) && preferences.colorIds.length >= 3} className={preferences.colorIds.includes(item.id) ? "color-choice selected" : "color-choice"} onClick={() => toggleValue("colorIds", item.id)}><i style={{ background: item.swatch }} />{item.label}{preferences.colorIds.includes(item.id) && " ✓"}</button>)}</div></section>
     <section className="settings-card"><h2>預設場合</h2><p>打開首頁時，先替你選好這個情境；你仍可在首頁隨時切換。</p><div className="occasion-chips settings-chips">{occasions.map((item) => <button key={item.id} className={preferences.defaultOccasion === item.id ? "occasion-chip active" : "occasion-chip"} onClick={() => { setPreferences((value) => ({ ...value, defaultOccasion: item.id })); setOccasion(item.id); }}>{item.icon} {item.label}</button>)}</div></section>
     <ReminderSettings city={city} reminder={preferences.reminder} onChange={(reminder) => setPreferences((value) => ({ ...value, reminder }))} />
+    <BackupSettings preferences={preferences} onRestore={(restored) => { setPreferences(restored); setOccasion(restored.defaultOccasion); }} />
     <div className="settings-links"><button onClick={onFavorites}>♡ 我的收藏 <span>{preferences.favorites.length}</span></button><button onClick={onWhy}>ⓘ 推薦依據說明</button></div>
   </>;
+}
+
+function BackupSettings({ preferences, onRestore }: { preferences: Preferences; onRestore: (preferences: Preferences) => void }) {
+  const [message, setMessage] = useState("");
+  async function exportBackup() {
+    const file = new File([createPreferencesBackup(preferences)], `weather-outfit-backup-${new Date().toISOString().slice(0, 10)}.json`, { type: "application/json" });
+    // iPhone 主畫面 App 無法直接下載檔案，改用系統分享面板（可存到「檔案」或用 AirDrop 傳到另一台裝置）。
+    if (navigator.canShare?.({ files: [file] })) {
+      try { await navigator.share({ files: [file], title: "Weather Outfit 備份" }); setMessage("已匯出備份。"); }
+      catch (error) { if (!(error instanceof DOMException && error.name === "AbortError")) setMessage("匯出失敗，請再試一次。"); }
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    const link = document.createElement("a");
+    link.href = url; link.download = file.name; link.click();
+    // 等瀏覽器開始下載後再釋放暫存網址，立即釋放會讓部分瀏覽器下載失敗。
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setMessage("已下載備份檔。");
+  }
+  async function importBackup(file: File | undefined) {
+    if (!file) return;
+    try {
+      onRestore(restorePreferencesBackup(await file.text(), preferences));
+      setMessage("已匯入偏好與收藏；這台裝置的每日提醒設定保持不變。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "匯入失敗。");
+    }
+  }
+  return <section className="settings-card"><h2>備份與換裝置</h2><p>偏好與收藏只存在這台裝置。匯出成檔案後，可以在另一台裝置匯入；每日提醒需在每台裝置各自開啟。</p><div className="notification-test"><button type="button" onClick={() => void exportBackup()}>匯出偏好與收藏</button><label className="file-button">匯入備份檔<input type="file" accept="application/json,.json" onChange={(event) => { void importBackup(event.target.files?.[0]); event.target.value = ""; }} /></label><small>{message}</small></div></section>;
 }
 
 function ReminderSettings({ city, reminder, onChange }: { city: { name: string; latitude: number; longitude: number }; reminder: Preferences["reminder"]; onChange: (reminder: Preferences["reminder"]) => void }) {

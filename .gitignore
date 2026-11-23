@@ -10,3 +10,5 @@ vite.config.d.ts
 .env.*
 !.env.example
 .openai/
+
+Claude outputs/
