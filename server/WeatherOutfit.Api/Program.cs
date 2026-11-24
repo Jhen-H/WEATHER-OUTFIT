@@ -29,7 +29,6 @@ if (string.IsNullOrWhiteSpace(connectionString))
     throw new InvalidOperationException("找不到 ConnectionStrings:WeatherOutfit。請用 .NET User Secrets 設定 Azure SQL 連線字串。");
 builder.Services.AddDbContext<WeatherOutfitDbContext>(options => options.UseSqlServer(connectionString, sql => sql.EnableRetryOnFailure()));
 builder.Services.AddScoped<ReminderStore>();
-builder.Services.AddHttpClient<PushSender>();
 builder.Services.AddRateLimiter(options =>
 {
     options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
@@ -109,9 +108,6 @@ app.MapGet("/api/push-public-key", (IConfiguration configuration) =>
         ? Results.Problem("VAPID public key has not been configured.", statusCode: StatusCodes.Status503ServiceUnavailable)
         : Results.Ok(new { publicKey });
 });
-// day=tomorrow：晚上 22:00 的「明日」通知；省略時為早上的「今日」通知。
-app.MapGet("/api/notification-advice", async (string cityName, double latitude, double longitude, string? day, PushSender sender) =>
-    Results.Ok(new { body = await sender.GetAdviceAsync(cityName, latitude, longitude, string.Equals(day, "tomorrow", StringComparison.OrdinalIgnoreCase)) }));
 app.MapPost("/api/devices", async (RegisterDeviceRequest request, ReminderStore store) =>
 {
     var device = await store.RegisterDevice(request.DeviceName);

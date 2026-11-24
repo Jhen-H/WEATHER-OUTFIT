@@ -36,9 +36,8 @@ flowchart LR
   U[使用者／PWA] -->|讀取天氣預報| W[Open-Meteo]
   U -->|HTTPS API| A[ASP.NET Core Web API]
   A --> S[(Azure SQL Database)]
-  A -->|取得通知天氣摘要| W
   F[Azure Function Timer<br/>台灣 22:00 明日預報、07:30 今日穿搭] -->|讀取提醒與通知紀錄| S
-  F -->|取得通知文案| A
+  F -->|查詢預報、組成通知文字| W
   F --> P[Web Push / VAPID]
   P --> U
   G[GitHub Actions] --> GH[GitHub Pages]
@@ -54,7 +53,7 @@ flowchart LR
 | CSS | 手機優先的響應式介面與依天氣改變的背景。 |
 | Open-Meteo API | 取得氣溫、降雨機率、UV、風速與天氣狀態。 |
 | Web Manifest + Service Worker | PWA 安裝、基本離線畫面與接收 Push；圖片先顯示快取並在背景更新。 |
-| ASP.NET Core Web API (.NET 10) | 裝置註冊、提醒設定、VAPID 公鑰與通知文案。 |
+| ASP.NET Core Web API (.NET 10) | 裝置註冊、提醒設定、Push 訂閱與 VAPID 公鑰。 |
 | Azure SQL Database | 儲存裝置、Push 訂閱與提醒城市／時間。 |
 | Azure Functions Timer Trigger | 每天台灣時間 22:00 推送明日預報、07:30 推送今日穿搭，各在 15 分鐘後補發失敗的裝置。 |
 | Azure App Service | 部署 Web API。 |
@@ -77,7 +76,7 @@ flowchart LR
 3. Azure Function 每天執行兩次（固定使用 UTC，避免雲端時區設定造成偏差），各在 15 分鐘後再執行一次，只補發第一次失敗的裝置：
    - **晚上 22:00**（UTC 14:00）：明天的預報與「建議準備」的衣物，點開通知會直接顯示 App 的「明天」分頁。
    - **早上 07:30**（UTC 23:30）：今天的即時天氣、全天預報與穿搭建議。
-4. Function 讀取已啟用的裝置，向 API 取得該城市的當日預報摘要（同城市只查一次），再以 VAPID 發出 Web Push。
+4. Function 讀取已啟用的裝置，直接向 Open-Meteo 查詢該城市的預報並組成通知文字（同城市只查一次，失敗會重試三次），再以 VAPID 發出 Web Push。
 5. 每台裝置每天在 `NotificationLogs` 留下一筆紀錄（`Sending`／`Sent`／`Failed`），以「裝置＋預報日期＋種類（morning／evening）」唯一鍵確保不會重複推播；SQL 冷啟動與 API 冷啟動都有重試。
 
 需要立即驗證時，可呼叫受 Function 金鑰保護的 `POST /api/RunDailyReminderNow`。它與排程共用同一段發送邏輯，並回傳「符合條件、已發送、已處理、失敗」的台數與失敗原因；同一天重複呼叫不會重複推播。加上 `?kind=evening` 可手動發送晚間的明日預報。
@@ -149,6 +148,8 @@ dotnet run --project server/WeatherOutfit.Api --urls http://127.0.0.1:5099
 4. **找到根因**：Function App 缺少 `AzureWebJobsStorage`，Timer 的排程監視器無法建立，監聽器從未啟動。
 5. **修正與驗證**：補上儲存體連接字串並重新啟動，儲存體出現 `azure-webjobs-hosts` 容器；再新增手動觸發端點，立即確認推播送達。
 
+後來又發現早上 07:30 的通知偶爾只有「今日穿搭建議已準備好」：Function 原本透過 Web API 取得通知文字，而 API 整晚閒置會休眠，早上冷啟動來不及回應，只好送出備用文字。晚上 22:00 正常，是因為 API 白天有人使用、仍在運作。現在改由 Function 直接查 Open-Meteo，少了一個會冷啟動的環節。
+
 同一輪排查也修正了另一個隱性問題：Function 原本只撈提醒時間「剛好等於 07:30」的裝置，而前端會把舊版留下的其他時間寫回資料庫，讓那些裝置每天都被跳過。現在提醒時間由前端、API 與資料庫三處一致固定為 07:30，Function 改為只依「已啟用且有訂閱」篩選。
 
 ## 專案結構
@@ -165,7 +166,7 @@ src/
   styles.css                      手機優先與桌機響應式樣式
 server/
   WeatherOutfit.Api/              ASP.NET Core API、Azure SQL、Web Push
-  WeatherOutfit.Reminders/        Azure Function 每日定時推播
+  WeatherOutfit.Reminders/        Azure Function 每日定時推播（WeatherAdvice.cs：通知文字與穿搭建議規則）
 public/
   outfits/                        完整穿搭照片素材
   preference-clothing/            偏好設定的服飾圖卡

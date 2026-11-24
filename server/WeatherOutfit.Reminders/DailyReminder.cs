@@ -249,36 +249,26 @@ public sealed class DailyReminder(IConfiguration config, ILogger<DailyReminder> 
 
     private async Task<string> BuildNotificationBody(HttpClient http, PushTarget reminder, ReminderKind kind)
     {
-        var fallback = kind == ReminderKind.Evening
+        var tomorrow = kind == ReminderKind.Evening;
+        var fallback = tomorrow
             ? $"{reminder.CityName}明天的天氣與穿搭建議已準備好，點開查看完整搭配。"
             : $"{reminder.CityName}今日穿搭建議已準備好，點開查看完整搭配。";
-        var apiBase = (config["WeatherApiBaseUrl"] ?? "https://weather-outfit-api-jhen2026-fgedbwhahdd4dzdx.japanwest-01.azurewebsites.net").TrimEnd('/');
-        var url = $"{apiBase}/api/notification-advice?cityName={Uri.EscapeDataString(reminder.CityName)}" +
-                  $"&latitude={reminder.Latitude.ToString(CultureInfo.InvariantCulture)}" +
-                  $"&longitude={reminder.Longitude.ToString(CultureInfo.InvariantCulture)}" +
-                  (kind == ReminderKind.Evening ? "&day=tomorrow" : "");
 
-        for (var attempt = 1; attempt <= 2; attempt++)
+        // 直接查 Open-Meteo；網路短暫不穩時，間隔 5、10 秒再試，三次都失敗才改送備用文字。
+        var delays = new[] { TimeSpan.Zero, TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(10) };
+        for (var attempt = 0; attempt < delays.Length; attempt++)
         {
+            await Task.Delay(delays[attempt]);
             try
             {
-                using var response = await http.GetAsync(url);
-                response.EnsureSuccessStatusCode();
-                await using var stream = await response.Content.ReadAsStreamAsync();
-                using var data = await JsonDocument.ParseAsync(stream);
-                var body = data.RootElement.GetProperty("body").GetString();
-                return string.IsNullOrWhiteSpace(body) ? fallback : body;
-            }
-            catch (Exception error) when (attempt == 1)
-            {
-                logger.LogWarning(error, "Weather advice request failed for {CityName}; retrying once.", reminder.CityName);
-                await Task.Delay(TimeSpan.FromSeconds(5));
+                return await WeatherAdvice.BuildAsync(http, reminder.CityName, reminder.Latitude, reminder.Longitude, tomorrow);
             }
             catch (Exception error)
             {
-                logger.LogWarning(error, "Unable to get weather advice for {CityName}; sending fallback text.", reminder.CityName);
+                logger.LogWarning(error, "Weather lookup attempt {Attempt} failed for {CityName}.", attempt + 1, reminder.CityName);
             }
         }
+        logger.LogError("Weather lookup failed {Attempts} times for {CityName}; sending fallback text.", delays.Length, reminder.CityName);
         return fallback;
     }
 
